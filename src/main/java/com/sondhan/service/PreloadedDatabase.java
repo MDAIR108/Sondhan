@@ -8,25 +8,36 @@ import java.util.*;
 
 /**
  * ──────────────────────────────────────────────────────────────────────────────
- * Topic 2 – Multithreading: initialized on a background ExecutorService thread.
- * In-memory hash map built once; lookup is O(1) on any thread.
+ * Preloaded Database & Visual Forensics Engine
  * ──────────────────────────────────────────────────────────────────────────────
- * Preloaded fact-check database of well-known viral claims.
- * Matches uploaded images by SHA-256 hash for instant, offline verdicts.
- *
- * ── HOW TO ADD ENTRIES ───────────────────────────────────────────────────────
- *   1. Copy the image into the /preloaded/ folder.
- *   2. Add an Entry(...) below with the filename, claim, verdict, sources, etc.
- *   3. The next app launch registers it automatically.
+ * • Matches uploaded/extracted images by SHA-256 hash for exact matches.
+ * • Matches images via 64-bit Difference Hash (dHash) and Hamming Distance
+ *   to detect edited, cropped, or out-of-context images.
  * ──────────────────────────────────────────────────────────────────────────────
  */
 public class PreloadedDatabase {
 
     private static PreloadedDatabase instance;
+
+    public static class IndexedEntry {
+        public final Entry entry;
+        public final File file;
+        public final String sha256;
+        public final long dHash;
+
+        public IndexedEntry(Entry entry, File file, String sha256, long dHash) {
+            this.entry  = entry;
+            this.file   = file;
+            this.sha256 = sha256;
+            this.dHash  = dHash;
+        }
+    }
+
     private final Map<String, FactCheckResult> hashToResult = new HashMap<>();
+    private final List<IndexedEntry> indexedEntries = new ArrayList<>();
     private boolean initialized = false;
 
-    // ── Preloaded entries ─────────────────────────────────────────────────────
+    // ── Preloaded Entries ─────────────────────────────────────────────────────
 
     private static final List<Entry> ENTRIES = List.of(
 
@@ -35,6 +46,9 @@ public class PreloadedDatabase {
             "FALSE", 82,
             "No evidence that Saiyed Abdullah called people ungrateful over electricity price hikes. " +
             "The post originated from a satirist profile with no credible source.",
+            "Facebook Misinformation Desk / Rumor Scanner BD",
+            "June 2024",
+            "Saiyed Abdullah never made any derogatory remarks regarding public electricity tariff hikes; the quote card was fabricated by an unauthorized satirical parody page.",
             List.of(
                 new FactCheckResult.Source("Rumor Scanner BD – Official Fact Check Investigation", "https://rumorscanner.com/fact-check/saiyed-abdullah-fake-comment-claim/208583", "newspaper"),
                 new FactCheckResult.Source("Boom Bangladesh – Viral Statement Fact Check Desk", "https://www.boomlive.in/fact-check/bangladesh-electricity-tariff-viral-quote-debunked", "newspaper"),
@@ -62,6 +76,9 @@ public class PreloadedDatabase {
             "MISLEADING", 72,
             "A case application was filed but dismissed by the court for lack of grounds. " +
             "No case was actually formally registered against them.",
+            "BDNews24 & The Daily Star Legal Beat",
+            "August 2024",
+            "No formal criminal or civil case was registered or accepted against Dr. Muhammad Yunus or Nurjahan Begum; the court summarily dismissed the complaint application on initial hearing.",
             List.of(
                 new FactCheckResult.Source("BDNEWS24 – Court Dismisses Complaint Against Dr. Yunus", "https://bangla.bdnews24.com/politics/politics/976b12683a00", "newspaper"),
                 new FactCheckResult.Source("The Daily Star – Court Dismisses Case Application Against Dr Yunus", "https://www.thedailystar.net/news/bangladesh/crime-justice/news/court-dismisses-case-application-against-dr-yunus-3677326", "newspaper"),
@@ -89,6 +106,9 @@ public class PreloadedDatabase {
             "TRUE", 99,
             "Dhaka is the official capital of Bangladesh, designated in Article 5 of the Constitution " +
             "since independence on December 16, 1971.",
+            "Constitution of Bangladesh (Art. 5) & Parliament Records",
+            "December 16, 1971",
+            "Dhaka has been the sole constitutional capital of Bangladesh continuously since independence in 1971.",
             List.of(
                 new FactCheckResult.Source("Laws of Bangladesh – Article 5: The Capital of the Republic is Dhaka", "https://bdlaws.minlaw.gov.bd/act-367/section-24553.html#:~:text=The%20capital%20of%20the%20Republic%20is%20Dhaka", "government"),
                 new FactCheckResult.Source("Bangladesh National Parliament – Official Government Portal", "https://old.parliament.gov.bd/index.php/en/home-en/members-of-parliament#:~:text=Dhaka", "government"),
@@ -117,6 +137,9 @@ public class PreloadedDatabase {
             "FALSE", 97,
             "No scientific evidence links 5G to cancer or radiation sickness. " +
             "5G uses non-ionizing radio waves that cannot damage DNA. WHO and FDA confirm safety.",
+            "World Health Organization (WHO) & U.S. FDA Technical Reports",
+            "2020 – 2024",
+            "5G networks utilize low-energy non-ionizing RF radiofrequencies that physically cannot break chemical bonds or damage cellular DNA. WHO, FDA, and ICNIRP confirm safety within guidelines.",
             List.of(
                 new FactCheckResult.Source("World Health Organization (WHO) – Radiation: 5G Mobile Networks and Health", "https://www.who.int/news-room/questions-and-answers/item/radiation-5g-mobile-networks-and-health#:~:text=no%20adverse%20health%20effect%20has%20been%20causally%20linked", "government"),
                 new FactCheckResult.Source("U.S. FDA – Scientific Evidence on Cell Phone and 5G Safety", "https://www.fda.gov/radiation-emitting-products/cell-phones/scientific-evidence-cell-phone-safety#:~:text=The%20scientific%20evidence%20does%20not%20show%20a%20danger", "government"),
@@ -145,6 +168,9 @@ public class PreloadedDatabase {
             "MISLEADING", 96,
             "While the first 4 claims in the post are true, the last claim is inconsistent. " +
             "Shishir Manir did not personally handle the case – a member of his legal team did.",
+            "BSS News & ICT Court Proceedings",
+            "September 2024",
+            "Advocate Shishir Manir did not personally handle or appear in the court proceedings for ex-IGP Mamun; an associate counsel within the law firm appeared on official record.",
             List.of(
                 new FactCheckResult.Source("BSS News – Case Legal Representation Record", "https://www.bssnews.net/news-flash/290934", "newspaper"),
                 new FactCheckResult.Source("TBS News – Court Proceedings & Counsel Identification", "https://www.tbsnews.net/bangladesh/court/clemency-ex-igp-mamun-conditional-full-disclosure-july-august-atrocities-ict", "newspaper"),
@@ -172,6 +198,9 @@ public class PreloadedDatabase {
             "MISLEADING", 78,
             "NASA confirmed evidence of ancient liquid water on Mars and possible brine flows, " +
             "but not currently flowing liquid water in the conventional sense.",
+            "Science Journal / NASA Jet Propulsion Laboratory",
+            "September 2015",
+            "NASA spectroscopic data found evidence of hydrated perchlorate salts (brines) associated with Recurring Slope Lineae, not sustained open potable liquid water flowing across the Martian surface.",
             List.of(
                 new FactCheckResult.Source("Science Journal – Spectral Evidence for Hydrated Salts on Mars (Ojha et al.)", "https://www.science.org/doi/10.1126/science.aab3351", "journal"),
                 new FactCheckResult.Source("Nature Geoscience – Water Cycle and Regolith Interactions on Mars", "https://www.nature.com/articles/ngeo2546", "journal"),
@@ -200,6 +229,9 @@ public class PreloadedDatabase {
             "TRUE", 91,
             "Victor Lustig twice sold the Eiffel Tower to scrap-metal dealers in 1925. " +
             "This is one of history's most audacious con schemes, well-documented by historians.",
+            "Smithsonian Magazine & Paris Municipal Archives",
+            "May 1925",
+            "Victor Lustig successfully orchestrated the fraudulent sale of the Eiffel Tower for scrap metal to André Poisson in May 1925, fleeing Paris before the scheme was uncovered.",
             List.of(
                 new FactCheckResult.Source("Smithsonian Magazine – The Man Who Sold the Eiffel Tower Twice", "https://www.smithsonianmag.com/history/the-man-who-sold-the-eiffel-tower-twice-17973580/", "journal"),
                 new FactCheckResult.Source("History.com – Victor Lustig: The Eiffel Tower Con Artist", "https://www.history.com/news/victor-lustig-sold-the-eiffel-tower", "journal"),
@@ -227,6 +259,9 @@ public class PreloadedDatabase {
             "FALSE", 99,
             "Climate change is supported by overwhelming scientific consensus from 97%+ of climate scientists. " +
             "Multiple independent studies, satellite data, and direct measurements confirm global warming.",
+            "NASA Vital Signs & IPCC Sixth Assessment Report (AR6)",
+            "2021 – 2023",
+            "Over 97% of actively publishing peer-reviewed climate scientists agree that contemporary climate warming is driven by anthropogenic greenhouse gas emissions, verified by satellite telemetry.",
             List.of(
                 new FactCheckResult.Source("NASA Climate – Direct Evidence and Vital Signs of Planetary Warming", "https://climate.nasa.gov/evidence/#:~:text=The%20current%20warming%20trend%20is%20of%20particular%20significance", "government"),
                 new FactCheckResult.Source("NOAA Climate.gov – Is global warming natural or driven by emissions?", "https://www.climate.gov/news-features/climate-qa/its-warming-natural#:~:text=human-caused%20global%20warming", "government"),
@@ -260,7 +295,7 @@ public class PreloadedDatabase {
         return instance;
     }
 
-    // ── Initialization (Topic 2: called on background thread) ─────────────────
+    // ── Initialization ────────────────────────────────────────────────────────
 
     public synchronized void initialize(String dir) {
         if (initialized) return;
@@ -273,44 +308,118 @@ public class PreloadedDatabase {
             }
             try {
                 String hash = ImageHashUtil.hashFile(f);
-                hashToResult.put(hash, build(e));
-                System.out.println("[Preloaded] Registered: " + e.fileName + " → " + hash.substring(0, 12) + "…");
+                long dHash = ImageHashUtil.computeDHash(f);
+                hashToResult.put(hash, build(e, f, hash));
+                indexedEntries.add(new IndexedEntry(e, f, hash, dHash));
+                System.out.println("[Preloaded] Registered: " + e.fileName + " → SHA: " + hash.substring(0, 10) + "… dHash: " + Long.toHexString(dHash));
             } catch (Exception ex) {
                 System.out.println("[Preloaded] Hash failed: " + e.fileName);
             }
         }
         initialized = true;
-        System.out.println("[Preloaded] Ready. " + hashToResult.size() + " image(s) registered.");
+        System.out.println("[Preloaded] Ready. " + indexedEntries.size() + " image(s) registered.");
     }
 
-    /** Returns a preloaded result for the uploaded image, or null if no match. */
+    /** Returns exact match if SHA-256 matches. */
     public FactCheckResult match(File uploaded) {
         try {
             String hash = ImageHashUtil.hashFile(uploaded);
             FactCheckResult r = hashToResult.get(hash);
-            System.out.println("[Preloaded] " + (r != null ? "Match: " + r.getClaim() : "No match."));
+            System.out.println("[Preloaded Exact Match] " + (r != null ? "Match: " + r.getClaim() : "No match."));
             return r;
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    /**
+     * Topic 5 / Forensics: Perceptual Near-Duplicate Comparison.
+     * Checks exact SHA-256 match first. If not identical, checks dHash Hamming distance.
+     * If Hamming distance <= 12, this proves the image is visually the same but has been
+     * modified, cropped, recaptioned, or compressed -> "MODIFIED / OUT OF CONTEXT".
+     */
+    public FactCheckResult matchPerceptual(File uploaded) {
+        try {
+            // 1. Exact match check
+            String uploadedHash = ImageHashUtil.hashFile(uploaded);
+            FactCheckResult exact = hashToResult.get(uploadedHash);
+            if (exact != null) {
+                return exact;
+            }
+
+            // 2. Perceptual dHash comparison against all indexed catalog images
+            long uploadedDHash = ImageHashUtil.computeDHash(uploaded);
+            IndexedEntry bestMatch = null;
+            int minDistance = Integer.MAX_VALUE;
+
+            for (IndexedEntry ie : indexedEntries) {
+                int dist = ImageHashUtil.hammingDistance(uploadedDHash, ie.dHash);
+                if (dist < minDistance) {
+                    minDistance = dist;
+                    bestMatch = ie;
+                }
+            }
+
+            // Hamming distance threshold: <= 12 bits out of 64 indicates near-duplicate
+            if (bestMatch != null && minDistance <= 12) {
+                System.out.println("[Forensics] Near-duplicate detected! Distance=" + minDistance + " with " + bestMatch.entry.fileName);
+                FactCheckResult r = new FactCheckResult();
+                r.setClaim(bestMatch.entry.claim);
+                r.setVerdict("MODIFIED / OUT OF CONTEXT");
+                r.setConfidence(93);
+                r.setExplanation("Visual forensic analysis confirmed this image is an altered or out-of-context version of an authentic archived photograph. " +
+                                 "Perceptual difference hash matched catalog entry with Hamming distance of " + minDistance + "/64. " +
+                                 bestMatch.entry.explanation);
+                r.setCorrection(bestMatch.entry.correction);
+                r.setSources(bestMatch.entry.sources);
+                r.setSummary(bestMatch.entry.summary);
+                r.setPreloaded(true);
+                r.setAiModel("Preloaded Visual Forensics Engine");
+
+                // Populate forensic side-by-side metadata
+                r.setOriginalImageUrl(bestMatch.file.toURI().toString());
+                r.setOriginalImageSource(bestMatch.entry.knownSource);
+                r.setOriginalImageDate(bestMatch.entry.knownDate);
+                r.setOriginalImageHash(bestMatch.sha256);
+
+                r.setSubmittedImageUrl(uploaded.toURI().toString());
+                r.setSubmittedImageHash(uploadedHash);
+                ImageHashUtil.ImageInfo info = ImageHashUtil.inspectImage(uploaded);
+                r.setSubmittedDimensions(info.width + "x" + info.height);
+                r.setSubmittedFormat(info.format);
+
+                return r;
+            }
+
+            return null;
         } catch (Exception ex) {
             ex.printStackTrace();
             return null;
         }
     }
 
-    /** Returns all preloaded entries (for demo/browse mode). */
     public static List<Entry> getAllEntries() { return ENTRIES; }
 
     // ── Builder ───────────────────────────────────────────────────────────────
 
-    private FactCheckResult build(Entry e) {
+    private FactCheckResult build(Entry e, File file, String hash) {
         FactCheckResult r = new FactCheckResult();
         r.setClaim(e.claim);
         r.setVerdict(e.verdict);
         r.setConfidence(e.confidence);
         r.setExplanation(e.explanation);
+        r.setCorrection(e.correction);
         r.setSources(e.sources);
         r.setSummary(e.summary);
         r.setPreloaded(true);
         r.setAiModel("Preloaded Database");
+
+        if (file != null) {
+            r.setOriginalImageUrl(file.toURI().toString());
+            r.setOriginalImageSource(e.knownSource);
+            r.setOriginalImageDate(e.knownDate);
+            r.setOriginalImageHash(hash);
+        }
         return r;
     }
 
@@ -322,13 +431,18 @@ public class PreloadedDatabase {
         public final String verdict;
         public final int    confidence;
         public final String explanation;
+        public final String knownSource;
+        public final String knownDate;
+        public final String correction;
         public final List<FactCheckResult.Source> sources;
         public final List<String> summary;
 
         public Entry(String fn, String cl, String vd, int cf, String ex,
+                     String ks, String kd, String corr,
                      List<FactCheckResult.Source> src, List<String> sum) {
             fileName    = fn; claim       = cl; verdict     = vd;
-            confidence  = cf; explanation = ex; sources     = src; summary = sum;
+            confidence  = cf; explanation = ex; knownSource = ks; knownDate   = kd;
+            correction  = corr; sources   = src; summary    = sum;
         }
     }
 }

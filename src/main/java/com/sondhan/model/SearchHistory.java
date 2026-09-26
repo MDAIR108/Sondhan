@@ -9,7 +9,7 @@ import java.time.LocalDateTime;
 public class SearchHistory {
     private int           id;
     private int           userId;
-    private String        inputType;
+    private String        inputType;     // "text", "image", "url"
     private String        originalInput;
     private String        claim;
     private String        verdict;
@@ -19,6 +19,8 @@ public class SearchHistory {
     private boolean       preloaded;
     private LocalDateTime createdAt;
     private String        aiModel;
+    private String        sourceUrl;
+    private String        correction;
 
     // ── Getters / Setters ─────────────────────────────────────────────────────
     public int           getId()              { return id; }
@@ -45,4 +47,8 @@ public class SearchHistory {
     public void          setCreatedAt(LocalDateTime v){ createdAt = v; }
     public String        getAiModel()         { return aiModel; }
     public void          setAiModel(String v) { aiModel = v; }
+    public String        getSourceUrl()       { return sourceUrl; }
+    public void          setSourceUrl(String v){ sourceUrl = v; }
+    public String        getCorrection()      { return correction; }
+    public void          setCorrection(String v){ correction = v; }
 }

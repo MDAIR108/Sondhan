@@ -1,17 +1,22 @@
 package com.sondhan.util;
 
 import javafx.scene.image.Image;
+import javax.imageio.ImageIO;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.FileInputStream;
 import java.security.MessageDigest;
 
 /**
  * ──────────────────────────────────────────────────────────────────────────────
- * Image & Cryptographic Utility (Course Project: Multithreading & Security)
+ * Image & Cryptographic Forensics Utility (Sondhan Fact Verification)
  * ──────────────────────────────────────────────────────────────────────────────
- * Computes SHA-256 cryptographic hashes for uploaded images to detect duplicates
- * and enable O(1) matching against preloaded fact-check databases.
- * Also extracts image dimensions, format, and human-readable file sizes.
+ * • Computes SHA-256 cryptographic hashes for exact matching.
+ * • Computes 64-bit Difference Hash (dHash) for perceptual near-duplicate matching
+ *   (detects modified, cropped, recaptioned, or compressed images).
+ * • Extracts image dimensions, format, and human-readable file sizes.
  * ──────────────────────────────────────────────────────────────────────────────
  */
 public class ImageHashUtil {
@@ -57,6 +62,50 @@ public class ImageHashUtil {
             }
         }
         return toHex(md.digest());
+    }
+
+    /**
+     * Computes a 64-bit Difference Hash (dHash) for perceptual near-duplicate matching.
+     * Resizes the image to 9x8 grayscale and computes horizontal gradient transitions.
+     * If two images have a Hamming distance <= 12, they are visually the same image,
+     * even if altered, cropped, recolored, or compressed.
+     */
+    public static long computeDHash(File file) {
+        try {
+            BufferedImage img = ImageIO.read(file);
+            if (img == null) return 0L;
+            return computeDHash(img);
+        } catch (Exception e) {
+            return 0L;
+        }
+    }
+
+    public static long computeDHash(BufferedImage img) {
+        BufferedImage small = new BufferedImage(9, 8, BufferedImage.TYPE_BYTE_GRAY);
+        Graphics2D g = small.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        g.drawImage(img, 0, 0, 9, 8, null);
+        g.dispose();
+
+        long hash = 0L;
+        for (int y = 0; y < 8; y++) {
+            for (int x = 0; x < 8; x++) {
+                int left = small.getRaster().getSample(x, y, 0);
+                int right = small.getRaster().getSample(x + 1, y, 0);
+                if (left > right) {
+                    hash |= (1L << (y * 8 + x));
+                }
+            }
+        }
+        return hash;
+    }
+
+    /**
+     * Calculates the Hamming distance between two 64-bit hashes.
+     * Returns the number of differing bits (0 to 64).
+     */
+    public static int hammingDistance(long h1, long h2) {
+        return Long.bitCount(h1 ^ h2);
     }
 
     /**

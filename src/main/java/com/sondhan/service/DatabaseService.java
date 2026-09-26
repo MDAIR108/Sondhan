@@ -77,13 +77,16 @@ public class DatabaseService {
                     sources_json   TEXT,
                     preloaded      INTEGER DEFAULT 0,
                     ai_model       TEXT    DEFAULT 'Unknown',
+                    source_url     TEXT,
+                    correction     TEXT,
                     created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (user_id) REFERENCES users(id)
                 )""");
 
-            // Migration: add ai_model column if it doesn't exist yet
-            try { s.execute("ALTER TABLE searches ADD COLUMN ai_model TEXT DEFAULT 'Unknown'"); }
-            catch (SQLException ignored) { /* column already exists */ }
+            // Migration: add columns if they don't exist yet in existing database
+            try { s.execute("ALTER TABLE searches ADD COLUMN ai_model TEXT DEFAULT 'Unknown'"); } catch (SQLException ignored) {}
+            try { s.execute("ALTER TABLE searches ADD COLUMN source_url TEXT"); } catch (SQLException ignored) {}
+            try { s.execute("ALTER TABLE searches ADD COLUMN correction TEXT"); } catch (SQLException ignored) {}
         }
     }
 
@@ -118,10 +121,11 @@ public class DatabaseService {
 
     public int saveSearch(int uid, String type, String orig, String claim,
                           String verdict, int conf, String expl,
-                          String srcJson, boolean pre, String aiModel) throws SQLException {
+                          String srcJson, boolean pre, String aiModel,
+                          String sourceUrl, String correction) throws SQLException {
         try (PreparedStatement ps = connection.prepareStatement(
                 "INSERT INTO searches (user_id,input_type,original_input,claim,verdict," +
-                "confidence,explanation,sources_json,preloaded,ai_model) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                "confidence,explanation,sources_json,preloaded,ai_model,source_url,correction) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 Statement.RETURN_GENERATED_KEYS)) {
             ps.setInt(1, uid);
             ps.setString(2, type);
@@ -133,6 +137,8 @@ public class DatabaseService {
             ps.setString(8, srcJson);
             ps.setInt(9, pre ? 1 : 0);
             ps.setString(10, aiModel != null ? aiModel : "Unknown");
+            ps.setString(11, sourceUrl);
+            ps.setString(12, correction);
             ps.executeUpdate();
             ResultSet rs = ps.getGeneratedKeys();
             if (rs.next()) return rs.getInt(1);
@@ -140,11 +146,17 @@ public class DatabaseService {
         return -1;
     }
 
+    public int saveSearch(int uid, String type, String orig, String claim,
+                          String verdict, int conf, String expl,
+                          String srcJson, boolean pre, String aiModel) throws SQLException {
+        return saveSearch(uid, type, orig, claim, verdict, conf, expl, srcJson, pre, aiModel, null, null);
+    }
+
     /** Backward-compat overload without aiModel. */
     public int saveSearch(int uid, String type, String orig, String claim,
                           String verdict, int conf, String expl,
                           String srcJson, boolean pre) throws SQLException {
-        return saveSearch(uid, type, orig, claim, verdict, conf, expl, srcJson, pre, "Unknown");
+        return saveSearch(uid, type, orig, claim, verdict, conf, expl, srcJson, pre, "Unknown", null, null);
     }
 
     public List<SearchHistory> getSearchHistory(int userId) throws SQLException {
@@ -166,6 +178,8 @@ public class DatabaseService {
                 h.setSourcesJson(rs.getString("sources_json"));
                 h.setPreloaded(rs.getInt("preloaded") == 1);
                 h.setAiModel(rs.getString("ai_model"));
+                try { h.setSourceUrl(rs.getString("source_url")); } catch (Exception ignored) {}
+                try { h.setCorrection(rs.getString("correction")); } catch (Exception ignored) {}
                 String ts = rs.getString("created_at");
                 if (ts != null) {
                     try { h.setCreatedAt(LocalDateTime.parse(ts.replace(" ", "T"))); }
@@ -176,6 +190,7 @@ public class DatabaseService {
         }
         return list;
     }
+
 
     public void deleteSearch(int id) throws SQLException {
         try (PreparedStatement ps = connection.prepareStatement("DELETE FROM searches WHERE id = ?")) {

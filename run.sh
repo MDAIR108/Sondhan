@@ -31,7 +31,7 @@ fi
 JACKSON_CP="$JACKSON_DATABIND:$JACKSON_CORE:$JACKSON_ANN"
 
 # Build classpath
-CP=$(find ~/.m2/repository -name "*.jar" 2>/dev/null | grep -E "javafx-.*21\.0\.6|sqlite-jdbc-3\.45\.2\.0|slf4j-api-1\.7\.36" | grep -v sources | paste -sd ":" -)
+CP=$(find ~/.m2/repository -name "*.jar" 2>/dev/null | grep -E "javafx-.*21\.0\.6|sqlite-jdbc-3\.45\.2\.0|slf4j-api-1\.7\.36|jsoup-1\.17\.2" | grep -v sources | paste -sd ":" -)
 CP="$CP:$JACKSON_CP"
 
 JFX_MODULES=$(find ~/.m2/repository -name "javafx-*.jar" 2>/dev/null | grep "21\.0\.6" | grep -v sources | paste -sd ":" -)

@@ -116,6 +116,18 @@
                                style="-fx-font-size:13px;"/>
                     </HBox>
 
+                    <!-- Source URL (if URL Verification) -->
+                    <VBox fx:id="detailSourceUrlBox" styleClass="claim-card" spacing="4.0" visible="false" managed="false">
+                        <Label text="🔗 SOURCE WEBPAGE" styleClass="section-label"/>
+                        <Hyperlink fx:id="detailSourceUrlLink" wrapText="true" style="-fx-text-fill: #38bdf8; -fx-font-size: 11px; -fx-padding: 0;"/>
+                    </VBox>
+
+                    <!-- Correction Card (if False/Misleading/Modified) -->
+                    <VBox fx:id="detailCorrectionBox" styleClass="correction-card" spacing="4.0" visible="false" managed="false">
+                        <Label text="💡 WHAT'S ACTUALLY TRUE" styleClass="correction-header"/>
+                        <Label fx:id="detailCorrectionLabel" wrapText="true" styleClass="correction-text" style="-fx-font-size:12px;"/>
+                    </VBox>
+
                     <!-- Explanation -->
                     <VBox styleClass="explanation-card" spacing="4.0" VBox.vgrow="ALWAYS">
                         <Label text="RATIONALE &amp; EXPLANATION" styleClass="section-label"/>

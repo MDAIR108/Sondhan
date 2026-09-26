@@ -48,13 +48,14 @@ public class HomeController {
 
     // ── Input Controls ────────────────────────────────────────────────────────
     @FXML private TabPane   inputTabPane;
-    @FXML private Tab       imageTab, textTab;
+    @FXML private Tab       imageTab, textTab, urlTab;
     @FXML private StackPane dropZone;
     @FXML private VBox      dropPromptBox;
     @FXML private Label     dropLabel;
     @FXML private ImageView previewImage;
-    @FXML private Button    clearImageBtn, checkBtn, checkBtnImage;
+    @FXML private Button    clearImageBtn, checkBtn, checkBtnImage, checkBtnUrl;
     @FXML private TextArea  textInputArea;
+    @FXML private TextField urlInputField;
 
     // ── Image Inspection System ───────────────────────────────────────────────
     @FXML private VBox      imageInfoBox;
@@ -69,12 +70,21 @@ public class HomeController {
     // ── Results Controls ──────────────────────────────────────────────────────
     @FXML private VBox      emptyState, resultPanel;
     @FXML private Label     preloadedBadge, modelUsedBadge;
+    @FXML private Label     sourceUrlBadge, sourceUrlLabel;
     @FXML private Label     claimLabel, verdictLabel, confidencePctLabel;
     @FXML private ProgressBar confidenceBar;
     @FXML private Label     explanationLabel;
     @FXML private VBox      sourcesBox;
     @FXML private VBox      summaryBox;
     @FXML private Label     summaryLabel, summaryStatusLabel;
+
+    // ── Forensics & Correction Panels ─────────────────────────────────────────
+    @FXML private VBox      imageComparisonPanel;
+    @FXML private Label     comparisonMatchLabel;
+    @FXML private ImageView submittedImageView, originalImageView;
+    @FXML private Label     submittedImageMetaLabel, originalImageMetaLabel;
+    @FXML private VBox      correctionCard;
+    @FXML private Label     correctionLabel;
 
     private File selectedImageFile;
     private FactCheckResult currentResult;
@@ -222,6 +232,33 @@ public class HomeController {
         textInputArea.setText("Climate change is a fabricated global hoax invented by scientists to secure research grants.");
     }
 
+    // ── URL Preset Handlers ───────────────────────────────────────────────────
+
+    @FXML private void handleUrlPreset5G() {
+        inputTabPane.getSelectionModel().select(urlTab);
+        urlInputField.setText("https://www.who.int/news-room/questions-and-answers/item/radiation-5g-mobile-networks-and-health");
+    }
+
+    @FXML private void handleUrlPresetEiffel() {
+        inputTabPane.getSelectionModel().select(urlTab);
+        urlInputField.setText("https://www.smithsonianmag.com/history/the-man-who-sold-the-eiffel-tower-twice-17973580/");
+    }
+
+    @FXML private void handleUrlPresetClimate() {
+        inputTabPane.getSelectionModel().select(urlTab);
+        urlInputField.setText("https://climate.nasa.gov/evidence/");
+    }
+
+    @FXML private void handleUrlPresetWHO() {
+        inputTabPane.getSelectionModel().select(urlTab);
+        urlInputField.setText("https://www.who.int/news-room/q-a-detail/vaccines-and-immunization-what-is-vaccination");
+    }
+
+    @FXML private void handleUrlPresetMars() {
+        inputTabPane.getSelectionModel().select(urlTab);
+        urlInputField.setText("https://www.nasa.gov/press-release/nasa-confirms-evidence-that-liquid-water-flows-on-today-s-mars");
+    }
+
     // ═════════════════════════════════════════════════════════════════════════
     //  API Key Settings Dialog (Gemini, ChatGPT, Claude & Free Mode)
     // ═════════════════════════════════════════════════════════════════════════
@@ -310,12 +347,19 @@ public class HomeController {
     // ═════════════════════════════════════════════════════════════════════════
 
     @FXML private void handleCheck() {
-        boolean isImage = inputTabPane.getSelectionModel().getSelectedItem() == imageTab;
+        Tab selected = inputTabPane.getSelectionModel().getSelectedItem();
+        boolean isImage = selected == imageTab;
+        boolean isUrl   = selected == urlTab;
+
         if (isImage && selectedImageFile == null) {
             alert("No Image Selected", "Please select or drop an image first, or pick one of the sample presets.");
             return;
         }
-        if (!isImage && textInputArea.getText().trim().isEmpty()) {
+        if (isUrl && (urlInputField == null || urlInputField.getText().trim().isEmpty())) {
+            alert("No URL Entered", "Please enter a valid website or article URL to verify, or pick a sample preset.");
+            return;
+        }
+        if (!isImage && !isUrl && textInputArea.getText().trim().isEmpty()) {
             alert("No Statement Entered", "Please type or paste a claim statement to fact-check, or pick a sample preset.");
             return;
         }
@@ -328,9 +372,33 @@ public class HomeController {
 
         if (isImage) {
             executeImageTask(selectedModel, selectedImageFile);
+        } else if (isUrl) {
+            executeUrlTask(selectedModel, urlInputField.getText().trim());
         } else {
             executeTextTask(selectedModel, textInputArea.getText().trim());
         }
+    }
+
+    /**
+     * Topic 2: URL Verification Task running on ExecutorService daemon pool.
+     */
+    private void executeUrlTask(String model, String urlStr) {
+        Task<FactCheckResult> task = new Task<>() {
+            @Override protected FactCheckResult call() throws Exception {
+                updateMessage("Connecting to URL and extracting page content...");
+                updateProgress(0.20, 1.0);
+
+                updateMessage("Inspecting visual elements & computing perceptual hash...");
+                updateProgress(0.50, 1.0);
+
+                FactCheckResult res = FactCheckerService.checkUrlClaim(model, urlStr);
+
+                updateMessage("Synthesizing citations and factual verification report...");
+                updateProgress(0.95, 1.0);
+                return res;
+            }
+        };
+        wireTask(task, "url", urlStr, model);
     }
 
     /**
@@ -416,13 +484,15 @@ public class HomeController {
             case "TRUE"       -> "✓ VERIFIED TRUE";
             case "FALSE"      -> "✕ FALSE CLAIM";
             case "MISLEADING" -> "⚠ MISLEADING";
+            case "MODIFIED / OUT OF CONTEXT" -> "⚡ MODIFIED / OUT OF CONTEXT";
             default           -> "? UNVERIFIED";
         });
-        verdictLabel.getStyleClass().removeAll("verdict-true", "verdict-false", "verdict-misleading", "verdict-unverified");
+        verdictLabel.getStyleClass().removeAll("verdict-true", "verdict-false", "verdict-misleading", "verdict-unverified", "verdict-modified");
         verdictLabel.getStyleClass().add(switch (r.getVerdict()) {
             case "TRUE"       -> "verdict-true";
             case "FALSE"      -> "verdict-false";
             case "MISLEADING" -> "verdict-misleading";
+            case "MODIFIED / OUT OF CONTEXT" -> "verdict-modified";
             default           -> "verdict-unverified";
         });
 
@@ -438,7 +508,77 @@ public class HomeController {
         preloadedBadge.setManaged(r.isPreloaded());
         modelUsedBadge.setText("Engine: " + (r.getAiModel() != null ? r.getAiModel() : "Sondhan AI"));
 
-        // 5. Categorized Sources Rendering (Newspaper, Book, Journal, Government)
+        // 5. Source URL Display (if checked via URL tab or has sourceUrl)
+        if (r.getSourceUrl() != null && !r.getSourceUrl().isBlank()) {
+            if (sourceUrlBadge != null) { sourceUrlBadge.setVisible(true); sourceUrlBadge.setManaged(true); }
+            if (sourceUrlLabel != null) {
+                sourceUrlLabel.setText("Verified Webpage: " + r.getSourceUrl());
+                sourceUrlLabel.setVisible(true); sourceUrlLabel.setManaged(true);
+            }
+        } else {
+            if (sourceUrlBadge != null) { sourceUrlBadge.setVisible(false); sourceUrlBadge.setManaged(false); }
+            if (sourceUrlLabel != null) { sourceUrlLabel.setVisible(false); sourceUrlLabel.setManaged(false); }
+        }
+
+        // 6. Side-by-Side Image Forensics Comparison (shown if original & submitted images exist)
+        boolean showComparison = r.getOriginalImageUrl() != null && !r.getOriginalImageUrl().isBlank()
+                && r.getSubmittedImageUrl() != null && !r.getSubmittedImageUrl().isBlank();
+        if (showComparison && imageComparisonPanel != null) {
+            try {
+                submittedImageView.setImage(new Image(r.getSubmittedImageUrl()));
+            } catch (Exception ex) {
+                submittedImageView.setImage(null);
+            }
+            try {
+                originalImageView.setImage(new Image(r.getOriginalImageUrl()));
+            } catch (Exception ex) {
+                originalImageView.setImage(null);
+            }
+
+            String subMeta = "";
+            if (r.getSubmittedFormat() != null) subMeta += "Format: " + r.getSubmittedFormat() + "  ";
+            if (r.getSubmittedDimensions() != null) subMeta += "Dimensions: " + r.getSubmittedDimensions() + "  ";
+            if (r.getSubmittedImageHash() != null) {
+                String h = r.getSubmittedImageHash();
+                subMeta += "SHA-256: " + (h.length() > 16 ? h.substring(0, 16) + "…" : h);
+            }
+            if (submittedImageMetaLabel != null) {
+                submittedImageMetaLabel.setText(subMeta.isBlank() ? "Extracted Visual Asset" : subMeta);
+            }
+
+            String origMeta = "";
+            if (r.getOriginalImageDate() != null) origMeta += "Archived: " + r.getOriginalImageDate() + "  ";
+            if (r.getOriginalImageSource() != null) origMeta += "Source: " + r.getOriginalImageSource() + "  ";
+            if (r.getOriginalImageHash() != null) {
+                String h = r.getOriginalImageHash();
+                origMeta += "Hash: " + (h.length() > 16 ? h.substring(0, 16) + "…" : h);
+            }
+            if (originalImageMetaLabel != null) {
+                originalImageMetaLabel.setText(origMeta.isBlank() ? "Verified Archived Reference" : origMeta);
+            }
+
+            imageComparisonPanel.setVisible(true);
+            imageComparisonPanel.setManaged(true);
+        } else if (imageComparisonPanel != null) {
+            imageComparisonPanel.setVisible(false);
+            imageComparisonPanel.setManaged(false);
+        }
+
+        // 7. Correction Card ("What's actually true" for FALSE, MISLEADING, MODIFIED)
+        boolean showCorrection = r.getCorrection() != null && !r.getCorrection().isBlank()
+                && ("FALSE".equalsIgnoreCase(r.getVerdict())
+                    || "MISLEADING".equalsIgnoreCase(r.getVerdict())
+                    || "MODIFIED / OUT OF CONTEXT".equalsIgnoreCase(r.getVerdict()));
+        if (showCorrection && correctionCard != null) {
+            correctionLabel.setText(r.getCorrection());
+            correctionCard.setVisible(true);
+            correctionCard.setManaged(true);
+        } else if (correctionCard != null) {
+            correctionCard.setVisible(false);
+            correctionCard.setManaged(false);
+        }
+
+        // 8. Categorized Sources Rendering (Newspaper, Book, Journal, Government)
         sourcesBox.getChildren().clear();
         if (r.getSources() != null && !r.getSources().isEmpty()) {
             for (FactCheckResult.Source s : r.getSources()) {
@@ -621,7 +761,7 @@ public class HomeController {
                 DatabaseService.getInstance().saveSearch(
                     uid, type, orig, r.getClaim(), r.getVerdict(),
                     r.getConfidence(), r.getExplanation(), sourcesJson,
-                    r.isPreloaded(), aiModel
+                    r.isPreloaded(), aiModel, r.getSourceUrl(), r.getCorrection()
                 );
                 return null;
             }
@@ -641,6 +781,12 @@ public class HomeController {
         sb.append("VERDICT: ").append(currentResult.getVerdict()).append("\n");
         sb.append("CONFIDENCE: ").append(currentResult.getConfidence()).append("%\n");
         sb.append("ENGINE: ").append(currentResult.getAiModel()).append("\n\n");
+        if (currentResult.getSourceUrl() != null && !currentResult.getSourceUrl().isBlank()) {
+            sb.append("SOURCE URL: ").append(currentResult.getSourceUrl()).append("\n\n");
+        }
+        if (currentResult.getCorrection() != null && !currentResult.getCorrection().isBlank()) {
+            sb.append("CORRECTION (WHAT IS TRUE):\n").append(currentResult.getCorrection()).append("\n\n");
+        }
         sb.append("EXPLANATION:\n").append(currentResult.getExplanation()).append("\n\n");
         sb.append("VERIFIED SOURCES:\n");
         if (currentResult.getSources() != null) {
@@ -678,6 +824,12 @@ public class HomeController {
                 sb.append("- **Verdict:** ").append(currentResult.getVerdict()).append("\n");
                 sb.append("- **Confidence:** ").append(currentResult.getConfidence()).append("%\n");
                 sb.append("- **Verification Engine:** ").append(currentResult.getAiModel()).append("\n\n");
+                if (currentResult.getSourceUrl() != null && !currentResult.getSourceUrl().isBlank()) {
+                    sb.append("- **Source URL:** ").append(currentResult.getSourceUrl()).append("\n\n");
+                }
+                if (currentResult.getCorrection() != null && !currentResult.getCorrection().isBlank()) {
+                    sb.append("## 💡 What's Actually True\n").append(currentResult.getCorrection()).append("\n\n");
+                }
                 sb.append("## 📝 Factual Rationale\n").append(currentResult.getExplanation()).append("\n\n");
                 sb.append("## 📚 Verified Sources & Citations\n");
                 if (currentResult.getSources() != null) {
@@ -730,6 +882,7 @@ public class HomeController {
     private void setLoading(boolean on) {
         if (checkBtn != null) checkBtn.setDisable(on);
         if (checkBtnImage != null) checkBtnImage.setDisable(on);
+        if (checkBtnUrl != null) checkBtnUrl.setDisable(on);
         loadingBox.setVisible(on);
         loadingBox.setManaged(on);
     }

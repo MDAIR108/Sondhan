@@ -156,6 +156,38 @@
                             </HBox>
                         </VBox>
                     </Tab>
+
+                    <!-- Tab 3: URL Verification -->
+                    <Tab fx:id="urlTab" text="  🔗 URL Verification  " closable="false">
+                        <VBox spacing="12.0">
+                            <padding><Insets top="12"/></padding>
+                            <HBox spacing="14.0" alignment="CENTER_LEFT">
+                                <TextField fx:id="urlInputField"
+                                           promptText="Enter news article or social post URL to verify (e.g. https://...)"
+                                           prefHeight="48.0" HBox.hgrow="ALWAYS" styleClass="claim-textarea"/>
+                                <Button fx:id="checkBtnUrl" text="Verify URL"
+                                        styleClass="btn-primary" prefHeight="48.0" prefWidth="200.0"
+                                        onAction="#handleCheck"/>
+                            </HBox>
+
+                            <!-- Quick Sample URL Chips -->
+                            <HBox spacing="8.0" alignment="CENTER_LEFT">
+                                <Label text="SAMPLE URLS:" styleClass="section-label"/>
+                                <FlowPane hgap="7.0" vgap="5.0" HBox.hgrow="ALWAYS" alignment="CENTER_LEFT">
+                                    <Button text="5G Health Claim Article" styleClass="preset-chip"
+                                            onAction="#handleUrlPreset5G"/>
+                                    <Button text="Eiffel Tower Scrap Report" styleClass="preset-chip"
+                                            onAction="#handleUrlPresetEiffel"/>
+                                    <Button text="Climate Change Misinfo" styleClass="preset-chip"
+                                            onAction="#handleUrlPresetClimate"/>
+                                    <Button text="WHO Vaccine Safety Q&amp;A" styleClass="preset-chip"
+                                            onAction="#handleUrlPresetWHO"/>
+                                    <Button text="NASA Mars Water Page" styleClass="preset-chip"
+                                            onAction="#handleUrlPresetMars"/>
+                                </FlowPane>
+                            </HBox>
+                        </VBox>
+                    </Tab>
                 </TabPane>
 
                 <!-- Progress Bar -->
@@ -217,13 +249,59 @@
                             </VBox>
                         </HBox>
 
+                        <!-- Side-by-Side Image Forensics Panel (Displayed when image is altered/out of context) -->
+                        <VBox fx:id="imageComparisonPanel" styleClass="comparison-panel" spacing="12.0" visible="false" managed="false">
+                            <HBox alignment="CENTER_LEFT" spacing="8.0">
+                                <Label text="🔬 VISUAL FORENSICS: SUBMITTED VS. AUTHENTIC ORIGINAL" styleClass="section-label" style="-fx-text-fill: #34d399;"/>
+                                <Region HBox.hgrow="ALWAYS"/>
+                                <Label fx:id="comparisonMatchLabel" text="Altered / Near-Duplicate Detected" styleClass="meta-pill" style="-fx-background-color: rgba(245, 158, 11, 0.2); -fx-text-fill: #fbbf24;"/>
+                            </HBox>
+                            <HBox spacing="16.0" alignment="CENTER">
+                                <!-- Left: Submitted Image -->
+                                <VBox spacing="6.0" alignment="CENTER" HBox.hgrow="ALWAYS" styleClass="comparison-column">
+                                    <Label text="SUBMITTED / EXTRACTED IMAGE" styleClass="comparison-subhead" style="-fx-text-fill: #f87171;"/>
+                                    <StackPane styleClass="comparison-image-box" prefHeight="170.0">
+                                        <ImageView fx:id="submittedImageView" fitWidth="300.0" fitHeight="160.0" preserveRatio="true"/>
+                                    </StackPane>
+                                    <Label fx:id="submittedImageMetaLabel" text="Format: JPG · Dimensions: 800x600" styleClass="comparison-meta" wrapText="true"/>
+                                </VBox>
+
+                                <!-- Middle Divider -->
+                                <VBox alignment="CENTER" spacing="4.0">
+                                    <Label text="VS" styleClass="comparison-vs-badge"/>
+                                </VBox>
+
+                                <!-- Right: Original Authentic Image -->
+                                <VBox spacing="6.0" alignment="CENTER" HBox.hgrow="ALWAYS" styleClass="comparison-column">
+                                    <Label text="ORIGINAL ARCHIVED PHOTOGRAPH" styleClass="comparison-subhead" style="-fx-text-fill: #34d399;"/>
+                                    <StackPane styleClass="comparison-image-box" prefHeight="170.0">
+                                        <ImageView fx:id="originalImageView" fitWidth="300.0" fitHeight="160.0" preserveRatio="true"/>
+                                    </StackPane>
+                                    <Label fx:id="originalImageMetaLabel" text="Archived: June 2024 · Source: Official Records" styleClass="comparison-meta" wrapText="true"/>
+                                </VBox>
+                            </HBox>
+                        </VBox>
+
+                        <!-- Correction Card (Shown for FALSE / MISLEADING / MODIFIED) -->
+                        <VBox fx:id="correctionCard" styleClass="correction-card" spacing="7.0" visible="false" managed="false">
+                            <HBox alignment="CENTER_LEFT" spacing="8.0">
+                                <Label text="💡 WHAT'S ACTUALLY TRUE (CORRECTION)" styleClass="correction-header"/>
+                            </HBox>
+                            <Label fx:id="correctionLabel" wrapText="true" styleClass="correction-text"/>
+                        </VBox>
+
                         <!-- Analysis Card -->
                         <VBox styleClass="panel" spacing="14.0">
                             <padding><Insets top="18" right="22" bottom="18" left="22"/></padding>
 
                             <VBox styleClass="claim-card" spacing="5.0">
-                                <Label text="EVALUATED STATEMENT" styleClass="section-label"/>
+                                <HBox alignment="CENTER_LEFT" spacing="8.0">
+                                    <Label text="EVALUATED STATEMENT" styleClass="section-label"/>
+                                    <Region HBox.hgrow="ALWAYS"/>
+                                    <Label fx:id="sourceUrlBadge" text="🔗 URL SOURCE" styleClass="meta-pill" visible="false" managed="false"/>
+                                </HBox>
                                 <Label fx:id="claimLabel" styleClass="claim-text" wrapText="true"/>
+                                <Label fx:id="sourceUrlLabel" styleClass="text-muted" wrapText="true" visible="false" managed="false"/>
                             </VBox>
 
                             <VBox styleClass="explanation-card" spacing="7.0">

@@ -63,6 +63,10 @@ public class HistoryController {
     @FXML private Label detailConfLabel;
     @FXML private Label detailExplanationLabel;
     @FXML private VBox  detailSourcesBox;
+    @FXML private VBox  detailSourceUrlBox;
+    @FXML private Hyperlink detailSourceUrlLink;
+    @FXML private VBox  detailCorrectionBox;
+    @FXML private Label detailCorrectionLabel;
 
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("dd MMM yyyy, HH:mm");
     private final ObservableList<SearchHistory> masterData = FXCollections.observableArrayList();
@@ -75,7 +79,7 @@ public class HistoryController {
 
         // 1. Setup Filter ComboBox
         verdictFilterCombo.setItems(FXCollections.observableArrayList(
-            "All Verdicts", "TRUE", "FALSE", "MISLEADING", "UNVERIFIED"
+            "All Verdicts", "TRUE", "FALSE", "MISLEADING", "MODIFIED / OUT OF CONTEXT", "UNVERIFIED"
         ));
         verdictFilterCombo.getSelectionModel().select(0);
 
@@ -86,7 +90,9 @@ public class HistoryController {
         });
 
         typeCol.setCellValueFactory(c -> {
-            String t = "image".equalsIgnoreCase(c.getValue().getInputType()) ? "🖼️ Image" : "💬 Text";
+            String inputType = c.getValue().getInputType();
+            String t = "url".equalsIgnoreCase(inputType) ? "🔗 URL"
+                     : ("image".equalsIgnoreCase(inputType) ? "🖼️ Image" : "💬 Text");
             return new javafx.beans.property.SimpleStringProperty(t);
         });
 
@@ -113,6 +119,7 @@ public class HistoryController {
                     case "TRUE"       -> "-fx-background-color:#065f46;-fx-text-fill:#34d399;-fx-font-weight:bold;-fx-padding:3 8;-fx-background-radius:10;";
                     case "FALSE"      -> "-fx-background-color:#991b1b;-fx-text-fill:#f87171;-fx-font-weight:bold;-fx-padding:3 8;-fx-background-radius:10;";
                     case "MISLEADING" -> "-fx-background-color:#92400e;-fx-text-fill:#fbbf24;-fx-font-weight:bold;-fx-padding:3 8;-fx-background-radius:10;";
+                    case "MODIFIED / OUT OF CONTEXT" -> "-fx-background-color:#c2410c;-fx-text-fill:#fed7aa;-fx-font-weight:bold;-fx-padding:3 8;-fx-background-radius:10;";
                     default           -> "-fx-background-color:#334155;-fx-text-fill:#cbd5e1;-fx-font-weight:bold;-fx-padding:3 8;-fx-background-radius:10;";
                 });
                 setGraphic(badge);
@@ -237,15 +244,38 @@ public class HistoryController {
 
         String verdict = h.getVerdict() != null ? h.getVerdict().toUpperCase() : "UNVERIFIED";
         detailVerdictLabel.setText(verdict);
-        detailVerdictLabel.getStyleClass().removeAll("verdict-true", "verdict-false", "verdict-misleading", "verdict-unverified");
+        detailVerdictLabel.getStyleClass().removeAll("verdict-true", "verdict-false", "verdict-misleading", "verdict-unverified", "verdict-modified");
         detailVerdictLabel.getStyleClass().add(switch (verdict) {
             case "TRUE"       -> "verdict-true";
             case "FALSE"      -> "verdict-false";
             case "MISLEADING" -> "verdict-misleading";
+            case "MODIFIED / OUT OF CONTEXT" -> "verdict-modified";
             default           -> "verdict-unverified";
         });
 
         detailConfLabel.setText(h.getConfidence() + "% Confidence");
+
+        // Display Source URL if this search was a URL check
+        if (h.getSourceUrl() != null && !h.getSourceUrl().isBlank()) {
+            detailSourceUrlLink.setText(h.getSourceUrl());
+            detailSourceUrlLink.setOnAction(ev -> openUrl(h.getSourceUrl()));
+            detailSourceUrlBox.setVisible(true);
+            detailSourceUrlBox.setManaged(true);
+        } else {
+            detailSourceUrlBox.setVisible(false);
+            detailSourceUrlBox.setManaged(false);
+        }
+
+        // Display authoritative correction if available
+        if (h.getCorrection() != null && !h.getCorrection().isBlank()) {
+            detailCorrectionLabel.setText(h.getCorrection());
+            detailCorrectionBox.setVisible(true);
+            detailCorrectionBox.setManaged(true);
+        } else {
+            detailCorrectionBox.setVisible(false);
+            detailCorrectionBox.setManaged(false);
+        }
+
         detailExplanationLabel.setText(h.getExplanation() != null ? h.getExplanation() : "No explanation archived.");
 
         // Topic 4: Parse JSON Array of sources stored in SQLite searches table using Jackson

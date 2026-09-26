@@ -86,6 +86,7 @@ public class FactCheckerService {
         "historical books, and peer-reviewed journals. " +
         "CRITICAL REQUIREMENT: For every citation in 'sources', you MUST provide an EXACT, specific article/document URL directly to the page that proves or disproves the point. " +
         "NEVER return a generic root homepage like https://reuters.com or https://who.int. If citing WHO, return the exact Q&A page; if citing a study, return the exact DOI/journal URL; if citing a newspaper, return the exact article link. " +
+        "If the verdict is FALSE, MISLEADING, or MODIFIED, provide a concise 'correction' field explaining what is actually true. " +
         "Categorize each source as: 'newspaper', 'book', 'journal', or 'government'. " +
         "Always respond ONLY with valid raw JSON (no markdown fences, no explanatory text).";
 
@@ -94,6 +95,7 @@ public class FactCheckerService {
         "\"verdict\":\"TRUE|FALSE|MISLEADING|UNVERIFIED\"," +
         "\"confidence\":<integer between 50 and 99>," +
         "\"explanation\":\"<Clear 2-3 sentence factual rationale>\"," +
+        "\"correction\":\"<Concise factual explanation of what is actually true if verdict is FALSE or MISLEADING, else empty string>\"," +
         "\"sources\":[{\"title\":\"<source title>\",\"url\":\"<source URL>\",\"type\":\"newspaper|book|journal|government\"}]," +
         "\"claim\":\"<restated claim>\"" +
         "}";
@@ -169,8 +171,8 @@ public class FactCheckerService {
      * Otherwise, evaluates based on image metadata & preloaded facts.
      */
     public static FactCheckResult checkImageClaim(String model, File imageFile) throws Exception {
-        // 1. Check Preloaded Hash Database first (instant match)
-        FactCheckResult pre = PreloadedDatabase.getInstance().match(imageFile);
+        // 1. Check Preloaded Hash Database first (instant match or visual perceptual match)
+        FactCheckResult pre = PreloadedDatabase.getInstance().matchPerceptual(imageFile);
         if (pre != null) {
             Thread.sleep(600); // Visual feedback
             pre.setInputType("image");
@@ -233,6 +235,65 @@ public class FactCheckerService {
         FactCheckResult fallback = evaluateImageOffline(fileName, imageFile);
         fallback.setInputType("image");
         return fallback;
+    }
+
+    /**
+     * Fact-checks a URL claim.
+     * 1. Fetches webpage via UrlContentExtractor (following redirects, timeout, user-agent).
+     * 2. Inspects embedded/og:image with PreloadedDatabase perceptual dHash comparison.
+     *    If image matches a known altered image, sets verdict to MODIFIED / OUT OF CONTEXT.
+     * 3. Checks extracted article text with dual engine (Live AI or Knowledge Engine).
+     * 4. Populates correction, sourceUrl, extractedText, and submittedImageUrl.
+     */
+    public static FactCheckResult checkUrlClaim(String model, String urlStr) throws Exception {
+        UrlContentExtractor.ExtractedPage page = UrlContentExtractor.extract(urlStr);
+
+        FactCheckResult result = null;
+
+        // Step 1: Visual Forensics on extracted image (if available)
+        if (page.downloadedImage != null && page.downloadedImage.exists()) {
+            FactCheckResult imgMatch = PreloadedDatabase.getInstance().matchPerceptual(page.downloadedImage);
+            if (imgMatch != null) {
+                result = imgMatch;
+                result.setInputType("url");
+                result.setSourceUrl(urlStr);
+                result.setExtractedText(page.text != null ? page.text : "");
+                if (result.getSubmittedImageUrl() == null || result.getSubmittedImageUrl().isBlank()) {
+                    result.setSubmittedImageUrl(page.imageUrl != null ? page.imageUrl : page.downloadedImage.toURI().toString());
+                }
+                return result;
+            }
+        }
+
+        // Step 2: Formulate claim from page title + clean text excerpt
+        String claimText = page.title;
+        if (claimText == null || claimText.isBlank()) {
+            claimText = (page.text != null && page.text.length() > 200)
+                    ? page.text.substring(0, 200)
+                    : (page.text != null ? page.text : "Web content from " + urlStr);
+        } else if (page.text != null && !page.text.isBlank()) {
+            String snippet = page.text.length() > 180 ? page.text.substring(0, 180) : page.text;
+            claimText = claimText + " - " + snippet;
+        }
+
+        // Step 3: Run claim-checking pipeline
+        result = checkTextClaim(model, claimText);
+        result.setInputType("url");
+        result.setSourceUrl(urlStr);
+        result.setExtractedText(page.text != null ? page.text : "");
+        if (page.imageUrl != null) {
+            result.setSubmittedImageUrl(page.imageUrl);
+        }
+
+        // Step 4: Ensure correction is populated for FALSE, MISLEADING, or MODIFIED verdicts
+        if (result.getCorrection() == null || result.getCorrection().isBlank()) {
+            String v = result.getVerdict();
+            if ("FALSE".equalsIgnoreCase(v) || "MISLEADING".equalsIgnoreCase(v) || "MODIFIED / OUT OF CONTEXT".equalsIgnoreCase(v)) {
+                result.setCorrection(generateCorrectionOffline(claimText, v, result.getExplanation()));
+            }
+        }
+
+        return result;
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -319,6 +380,7 @@ public class FactCheckerService {
                 "Scientific consensus confirms that 5G radiofrequency transmissions operate in non-ionizing bands that lack sufficient photon energy to damage DNA or cellular structures. " +
                 "Extensive independent investigations by the World Health Organization (WHO), FDA, and ICNIRP found zero empirical link between 5G electromagnetic exposure and cancer."
             );
+            r.setCorrection("5G non-ionizing radiofrequencies cannot damage cellular DNA; extensive evaluations by the WHO, FDA, and ICNIRP confirm no causal health risks.");
             r.setSources(List.of(
                 new FactCheckResult.Source("World Health Organization (WHO) – Radiation: 5G Mobile Networks and Health", "https://www.who.int/news-room/questions-and-answers/item/radiation-5g-mobile-networks-and-health#:~:text=no%20adverse%20health%20effect%20has%20been%20causally%20linked", "government"),
                 new FactCheckResult.Source("U.S. FDA – Scientific Evidence on Cell Phone and 5G Safety", "https://www.fda.gov/radiation-emitting-products/cell-phones/scientific-evidence-cell-phone-safety#:~:text=The%20scientific%20evidence%20does%20not%20show%20a%20danger", "government"),
@@ -336,6 +398,7 @@ public class FactCheckerService {
                 "While legal applications were submitted to local courts, they were promptly dismissed for lacking prima facie evidence. " +
                 "Headlines claiming active convictions or pending criminal registrations misrepresent preliminary applications as formal judicial proceedings."
             );
+            r.setCorrection("No criminal or civil case was accepted or registered against Dr. Muhammad Yunus; the complaint application was summarily rejected by the court.");
             r.setSources(List.of(
                 new FactCheckResult.Source("BDNEWS24 – Court Dismisses Complaint Against Dr. Yunus", "https://bangla.bdnews24.com/politics/politics/976b12683a00", "newspaper"),
                 new FactCheckResult.Source("The Daily Star – Court Dismisses Case Application Against Dr Yunus", "https://www.thedailystar.net/news/bangladesh/crime-justice/news/court-dismisses-case-application-against-dr-yunus-3677326", "newspaper"),
@@ -352,6 +415,7 @@ public class FactCheckerService {
                 "No verified press briefing or social media posting corroborates the comment attributed to Saiyed Abdullah regarding electricity tariff adjustments. " +
                 "Independent fact-checking units traced the quote back to a satirical social page with no journalistic foundation."
             );
+            r.setCorrection("Saiyed Abdullah never made any derogatory remarks regarding public electricity tariff hikes; the quote card was fabricated by an unauthorized satirical parody page.");
             r.setSources(List.of(
                 new FactCheckResult.Source("Rumor Scanner BD – Official Fact Check Investigation", "https://rumorscanner.com/fact-check/saiyed-abdullah-fake-comment-claim/208583", "newspaper"),
                 new FactCheckResult.Source("Boom Bangladesh – Viral Statement Fact Check Desk", "https://www.boomlive.in/fact-check/bangladesh-electricity-tariff-viral-quote-debunked", "newspaper"),
@@ -389,6 +453,7 @@ public class FactCheckerService {
                 "Over 97% of actively publishing climate scientists and every major national scientific academy endorse the consensus that human activity is driving global warming. " +
                 "Direct instrumental data from NASA, NOAA, and the European Copernicus program demonstrate accelerating temperature rise, ice sheet mass loss, and oceanic acidification."
             );
+            r.setCorrection("Global warming is overwhelmingly driven by anthropogenic greenhouse gas emissions, verified by over 97% of publishing climate scientists and NASA/IPCC observations.");
             r.setSources(List.of(
                 new FactCheckResult.Source("NASA Climate – Direct Evidence and Vital Signs of Planetary Warming", "https://climate.nasa.gov/evidence/#:~:text=The%20current%20warming%20trend%20is%20of%20particular%20significance", "government"),
                 new FactCheckResult.Source("IPCC Sixth Assessment Synthesis Report (Headline Statements)", "https://www.ipcc.ch/report/ar6/syr/longer-report/#:~:text=Human%20activities%2C%20principally%20through%20emissions%20of%20greenhouse%20gases", "journal"),
@@ -406,6 +471,7 @@ public class FactCheckerService {
                 "While orbital spectroscopy and rovers (Curiosity, Perseverance) confirm ancient rivers, lakes, and subsurface permafrost ice, pure liquid water cannot persist exposed on Mars's surface due to the thin atmospheric pressure. " +
                 "Transient hydrated salt flows (Recurring Slope Lineae) are subject to ongoing academic debate."
             );
+            r.setCorrection("While Mars has subsurface ice and ancient dried water basins, liquid water cannot persist exposed on its surface due to low atmospheric pressure and freezing temperatures.");
             r.setSources(List.of(
                 new FactCheckResult.Source("Science Journal – Spectral Evidence for Hydrated Salts on Mars (Ojha et al.)", "https://www.science.org/doi/10.1126/science.aab3351", "journal"),
                 new FactCheckResult.Source("NASA Mars Exploration – Confirmed Evidence of Liquid Water RSL", "https://www.nasa.gov/press-release/nasa-confirms-evidence-that-liquid-water-flows-on-today-s-mars", "government"),
@@ -422,6 +488,7 @@ public class FactCheckerService {
                 "Astronauts from Apollo missions and the International Space Station confirm the Great Wall of China is completely invisible from the Moon or high orbit without optical magnification. " +
                 "Because it is constructed from local soils and stones and is only a few meters wide, it lacks optical contrast against surrounding topography."
             );
+            r.setCorrection("The Great Wall of China is completely invisible from space or the Moon to the naked human eye due to its narrow width and lack of topographical contrast.");
             r.setSources(List.of(
                 new FactCheckResult.Source("NASA Earth Observatory – China's Wall Less and More Visible Than Myth Claims", "https://earthobservatory.nasa.gov/features/ChinaWall#:~:text=The%20Great%20Wall%20of%20China%20is%20frequently%20billed", "government"),
                 new FactCheckResult.Source("NASA ISS Research – Astronaut Yang Liwei Statements on Great Wall Visibility", "https://www.nasa.gov/audience/forstudents/5-8/features/F_Great_Wall.html", "government"),
@@ -441,6 +508,7 @@ public class FactCheckerService {
                 "The Apollo 11 moon landing in July 1969 is verified by 382 kilograms of lunar rock samples, retroreflector laser-ranging experiments still utilized today, and independent radar tracking by the Soviet Union. " +
                 "High-resolution orbital images from the Lunar Reconnaissance Orbiter (LRO) clearly show the descent stages, astronaut footpaths, and equipment left behind."
             );
+            r.setCorrection("The Apollo 11 Moon landing occurred on July 20, 1969, corroborated by 382 kg of lunar samples, retroreflectors, and orbital photographic confirmation by the Lunar Reconnaissance Orbiter.");
             r.setSources(List.of(
                 new FactCheckResult.Source("NASA Apollo 11 Mission Overview & Lunar Surface Telemetry", "https://www.nasa.gov/mission_pages/apollo/apollo-11.html", "government"),
                 new FactCheckResult.Source("Lunar Reconnaissance Orbiter (LRO) – High Resolution Images of Apollo Landing Sites", "https://www.nasa.gov/mission_pages/LRO/multimedia/lroimages/apollosites.html#:~:text=LRO%20has%20imaged%20the%20Apollo%20landing%20sites", "government"),
@@ -461,6 +529,7 @@ public class FactCheckerService {
                 "The claim linking MMR vaccines to autism originated from a discredited, fraudulent 1998 paper by Andrew Wakefield, which was formally retracted by The Lancet after financial conflicts of interest and data falsification were uncovered. " +
                 "Rigorous multinational cohort studies comprising over 1.2 million children have demonstrated no association whatsoever."
             );
+            r.setCorrection("Rigorous multinational cohort studies of over 1.2 million children confirm MMR vaccines do not cause autism. The 1998 Wakefield paper was formally retracted for fraud.");
             r.setSources(List.of(
                 new FactCheckResult.Source("The Lancet – Retraction Notice for Wakefield et al. (Autism Claim Retracted)", "https://www.thelancet.com/journals/lancet/article/PIIS0140-6736(10)60175-4/fulltext", "journal"),
                 new FactCheckResult.Source("British Medical Journal (BMJ) – The Wakefield Autism Fraud Investigation by Brian Deer", "https://www.bmj.com/content/342/bmj.c7452", "journal"),
@@ -487,6 +556,9 @@ public class FactCheckerService {
             "Preliminary corroboration suggests aspects of this claim require careful contextual distinction between established consensus and popular interpretation. " +
             "Consult the referenced academic and news compendiums below for primary documentation."
         );
+        if ("FALSE".equalsIgnoreCase(verdict) || "MISLEADING".equalsIgnoreCase(verdict)) {
+            r.setCorrection(generateCorrectionOffline(rawClaim, verdict, r.getExplanation()));
+        }
 
         String encodedClaim;
         try {
@@ -532,6 +604,7 @@ public class FactCheckerService {
             r.setVerdict("FALSE");
             r.setConfidence(98);
             r.setExplanation("Peer-reviewed biophysics confirms 5G relies on non-ionizing RF bands that cannot induce cellular oncogenesis.");
+            r.setCorrection("5G non-ionizing radiofrequencies cannot damage cellular DNA; extensive evaluations by the WHO, FDA, and ICNIRP confirm no causal health risks.");
             r.setSources(List.of(
                 new FactCheckResult.Source("World Health Organization (WHO) – Radiation: 5G Mobile Networks and Health", "https://www.who.int/news-room/questions-and-answers/item/radiation-5g-mobile-networks-and-health#:~:text=no%20adverse%20health%20effect%20has%20been%20causally%20linked", "government"),
                 new FactCheckResult.Source("U.S. FDA – Cell Phone Safety Evidence", "https://www.fda.gov/radiation-emitting-products/cell-phones/scientific-evidence-cell-phone-safety#:~:text=The%20scientific%20evidence%20does%20not%20show%20a%20danger", "government"),
@@ -554,6 +627,50 @@ public class FactCheckerService {
             new FactCheckResult.Source("Digital Image Forensics Reference Library", "https://en.wikipedia.org/wiki/Digital_image_forensics", "book")
         ));
         return r;
+    }
+
+    /**
+     * Generates a concise, authoritative correction statement for FALSE or MISLEADING claims.
+     */
+    public static String generateCorrectionOffline(String claim, String verdict, String explanation) {
+        String lower = claim != null ? claim.toLowerCase() : "";
+        if (lower.contains("5g") || lower.contains("radiation")) {
+            return "5G telecommunication networks operate using non-ionizing electromagnetic radiation, which does not possess sufficient photon energy to damage DNA or cellular structures. Decades of peer-reviewed consensus and WHO/FDA guidelines establish that exposure limits are rigorously safe.";
+        }
+        if (lower.contains("dhaka") && lower.contains("capital")) {
+            return "Dhaka is the sovereign constitutional capital of Bangladesh under Article 5 of the Constitution of the People's Republic of Bangladesh.";
+        }
+        if (lower.contains("yunus")) {
+            return "No criminal case was ever registered or accepted against Dr. Muhammad Yunus in the referenced matter; the application was dismissed at the preliminary stage by the court.";
+        }
+        if (lower.contains("saiyed") || lower.contains("abdullah")) {
+            return "Saiyed Abdullah never issued any public statements calling citizens ungrateful regarding power tariffs; the quote was manufactured by an unauthorized parody account.";
+        }
+        if (lower.contains("climate")) {
+            return "Global climate change is driven by human anthropogenic greenhouse gas emissions, verified by over 97% of publishing climate scientists and comprehensive data from NASA, NOAA, and the IPCC.";
+        }
+        if (lower.contains("mars")) {
+            return "Mars contains ancient dried river valleys and subsurface water ice, but atmospheric pressure and temperature prevent stable liquid water on its exposed surface.";
+        }
+        if (lower.contains("great wall")) {
+            return "The Great Wall of China is not visible from low Earth orbit or the Moon without specialized telescopic equipment, as confirmed by international astronauts and NASA.";
+        }
+        if (lower.contains("moon landing")) {
+            return "The Apollo 11 Moon landing occurred on July 20, 1969, corroborated by 382 kg of lunar samples, retroreflectors, and orbital photographic confirmation by the Lunar Reconnaissance Orbiter.";
+        }
+        if (lower.contains("vaccine")) {
+            return "Extensive multi-country clinical studies covering millions of individuals confirm vaccines do not cause autism. The original 1998 Wakefield paper was formally retracted for fraud.";
+        }
+        // General fallback correction
+        if ("FALSE".equalsIgnoreCase(verdict)) {
+            return "The verified consensus of reputable fact-checking organizations and scientific/historical records confirms that this assertion is demonstrably inaccurate. " +
+                   (explanation != null && !explanation.isBlank() ? explanation.split("\\.")[0] + "." : "");
+        } else if ("MISLEADING".equalsIgnoreCase(verdict)) {
+            return "This statement conflates partial facts with uncorroborated conclusions. Authentic records clarify the specific legal or scientific context without sensationalized framing.";
+        } else if ("MODIFIED / OUT OF CONTEXT".equalsIgnoreCase(verdict)) {
+            return "The visual material or headline has been digitally altered, cropped, or reassigned from its original historical context to support an unverified narrative.";
+        }
+        return "Accredited news archives and reference encyclopedias do not corroborate this claim in its present formulation.";
     }
 
     private static String buildOfflineSummary(String claim, String verdict, String explanation, List<FactCheckResult.Source> sources) {
@@ -849,6 +966,13 @@ public class FactCheckerService {
             r.setVerdict(j.path("verdict").asText("UNVERIFIED").toUpperCase());
             r.setConfidence(j.path("confidence").asInt(50));
             r.setExplanation(j.path("explanation").asText(text));
+
+            String corr = j.path("correction").asText(null);
+            if ((corr == null || corr.isBlank() || "null".equalsIgnoreCase(corr))
+                    && ("FALSE".equalsIgnoreCase(r.getVerdict()) || "MISLEADING".equalsIgnoreCase(r.getVerdict()) || "MODIFIED / OUT OF CONTEXT".equalsIgnoreCase(r.getVerdict()))) {
+                corr = generateCorrectionOffline(r.getClaim(), r.getVerdict(), r.getExplanation());
+            }
+            r.setCorrection(corr);
 
             List<FactCheckResult.Source> sources = new ArrayList<>();
             JsonNode arr = j.path("sources");

@@ -476,6 +476,89 @@
     -fx-padding: 8 22;
 }
 
+.verdict-modified {
+    -fx-background-color: linear-gradient(to right, #ea580c, #f59e0b);
+    -fx-text-fill: #ffffff;
+    -fx-font-weight: 900;
+    -fx-font-size: 15px;
+    -fx-background-radius: 20;
+    -fx-padding: 8 18;
+    -fx-effect: dropshadow(gaussian, rgba(234, 88, 12, 0.5), 14, 0, 0, 2);
+}
+
+/* ── Correction Card ("What's actually true") ────────────────────────────── */
+.correction-card {
+    -fx-background-color: linear-gradient(to right, rgba(16, 185, 129, 0.12), rgba(56, 189, 248, 0.08));
+    -fx-background-radius: 10;
+    -fx-border-color: rgba(52, 211, 153, 0.45);
+    -fx-border-radius: 10;
+    -fx-border-width: 1.5;
+    -fx-padding: 14;
+}
+
+.correction-header {
+    -fx-text-fill: #34d399;
+    -fx-font-size: 11.5px;
+    -fx-font-weight: 900;
+    -fx-letter-spacing: 0.5px;
+}
+
+.correction-text {
+    -fx-text-fill: #ecfdf5;
+    -fx-font-size: 14px;
+    -fx-font-weight: 600;
+    -fx-line-spacing: 3px;
+}
+
+/* ── Visual Forensics Side-by-Side Comparison ────────────────────────────── */
+.comparison-panel {
+    -fx-background-color: #060b14;
+    -fx-background-radius: 12;
+    -fx-border-color: rgba(52, 211, 153, 0.3);
+    -fx-border-radius: 12;
+    -fx-border-width: 1.5;
+    -fx-padding: 16;
+}
+
+.comparison-column {
+    -fx-background-color: #0b1526;
+    -fx-background-radius: 10;
+    -fx-border-color: rgba(56, 189, 248, 0.16);
+    -fx-border-radius: 10;
+    -fx-padding: 12;
+}
+
+.comparison-subhead {
+    -fx-font-size: 11.5px;
+    -fx-font-weight: 800;
+    -fx-letter-spacing: 0.4px;
+}
+
+.comparison-image-box {
+    -fx-background-color: #040810;
+    -fx-background-radius: 8;
+    -fx-border-color: rgba(255, 255, 255, 0.06);
+    -fx-border-radius: 8;
+    -fx-padding: 6;
+}
+
+.comparison-meta {
+    -fx-text-fill: #94a3b8;
+    -fx-font-size: 11px;
+    -fx-font-family: "SF Mono", "Menlo", "Consolas", monospace;
+}
+
+.comparison-vs-badge {
+    -fx-background-color: rgba(37, 99, 235, 0.3);
+    -fx-text-fill: #38bdf8;
+    -fx-font-size: 12px;
+    -fx-font-weight: 900;
+    -fx-padding: 6 10;
+    -fx-background-radius: 14;
+    -fx-border-color: rgba(56, 189, 248, 0.35);
+    -fx-border-radius: 14;
+}
+
 /* ── Result Cards ───────────────────────────────────────────────────────── */
 .claim-card {
     -fx-background-color: #060b14;
