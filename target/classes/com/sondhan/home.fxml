@@ -1,0 +1,269 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?import javafx.scene.layout.*?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.image.*?>
+<?import javafx.geometry.Insets?>
+
+<BorderPane xmlns="http://javafx.com/javafx/21"
+            xmlns:fx="http://javafx.com/fxml/1"
+            fx:controller="com.sondhan.controller.HomeController"
+            styleClass="root-pane" prefWidth="1140.0" prefHeight="800.0">
+
+    <!-- ── TOP Header Bar ─────────────────────────────────────────────────── -->
+    <top>
+        <HBox styleClass="header" alignment="CENTER_LEFT" spacing="16.0">
+            <padding><Insets top="13" right="22" bottom="13" left="22"/></padding>
+
+            <!-- App Logo & Title -->
+            <VBox spacing="1.0">
+                <HBox spacing="9.0" alignment="CENTER_LEFT">
+                    <Label text="Sondhan" styleClass="header-logo"/>
+                    <Label text="v2.5" styleClass="header-badge"/>
+                </HBox>
+                <Label text="Multi-Source Fact Verification  ·  Newspapers  ·  Books  ·  Journals" styleClass="header-subtitle"/>
+            </VBox>
+
+            <Region HBox.hgrow="ALWAYS"/>
+
+            <!-- Verification Engine Selector -->
+            <HBox alignment="CENTER" spacing="10.0">
+                <Label text="Engine:" styleClass="nav-label"/>
+                <ComboBox fx:id="modelSelector" styleClass="model-combo" prefWidth="192.0"/>
+            </HBox>
+
+            <!-- API Status Pill -->
+            <Label fx:id="apiKeyStatusLabel" text="Free Mode"
+                   styleClass="badge-free-mode" onMouseClicked="#handleApiKeySettings"
+                   style="-fx-cursor:hand;"/>
+
+            <!-- Navigation Buttons -->
+            <Button text="Theme" styleClass="nav-btn" onAction="#handleToggleTheme"/>
+            <Button text="Settings" styleClass="nav-btn" onAction="#handleApiKeySettings"/>
+            <Button text="History" styleClass="nav-btn" onAction="#handleHistory"/>
+
+            <Separator orientation="VERTICAL" prefHeight="22.0" opacity="0.2"/>
+
+            <!-- User Info -->
+            <HBox alignment="CENTER" spacing="7.0" styleClass="user-badge-box">
+                <Label fx:id="userNameLabel" text="User" styleClass="user-label"/>
+            </HBox>
+
+            <Button text="Sign Out" styleClass="nav-btn-ghost" onAction="#handleLogout"/>
+        </HBox>
+    </top>
+
+    <!-- ── Center Workspace ──────────────────────────────────────────────── -->
+    <center>
+        <VBox spacing="16.0">
+            <padding><Insets top="16" right="22" bottom="16" left="22"/></padding>
+
+            <!-- ═══════════════════════════════════════════════════════════════
+                 TOP SECTION: INPUT CONSOLE
+                 ═══════════════════════════════════════════════════════════════ -->
+            <VBox styleClass="panel" spacing="12.0">
+                <padding><Insets top="16" right="20" bottom="16" left="20"/></padding>
+
+                <!-- Input Tabs -->
+                <TabPane fx:id="inputTabPane" styleClass="custom-tabpane">
+
+                    <!-- Tab 1: Text Claim -->
+                    <Tab fx:id="textTab" text="  Text Statement Verification  " closable="false">
+                        <VBox spacing="12.0">
+                            <padding><Insets top="12"/></padding>
+                            <HBox spacing="14.0" alignment="CENTER_LEFT">
+                                <TextArea fx:id="textInputArea"
+                                          promptText="Enter a news headline, political claim, or factual statement to verify..."
+                                          prefHeight="68.0" HBox.hgrow="ALWAYS" wrapText="true" styleClass="claim-textarea"/>
+                                <Button fx:id="checkBtn" text="Verify Claim"
+                                        styleClass="btn-primary" prefHeight="68.0" prefWidth="200.0"
+                                        onAction="#handleCheck"/>
+                            </HBox>
+
+                            <!-- Quick Sample Chips -->
+                            <HBox spacing="8.0" alignment="CENTER_LEFT">
+                                <Label text="SAMPLE CLAIMS:" styleClass="section-label"/>
+                                <FlowPane hgap="7.0" vgap="5.0" HBox.hgrow="ALWAYS" alignment="CENTER_LEFT">
+                                    <Button text="Dhaka is capital since 1971" styleClass="preset-chip"
+                                            onAction="#handleTextPresetDhaka"/>
+                                    <Button text="5G causes cancer and radiation" styleClass="preset-chip"
+                                            onAction="#handleTextPreset5G"/>
+                                    <Button text="Eiffel Tower sold for scrap in 1925" styleClass="preset-chip"
+                                            onAction="#handleTextPresetEiffel"/>
+                                    <Button text="Apollo moon landing was staged" styleClass="preset-chip"
+                                            onAction="#handleTextPresetMoon"/>
+                                    <Button text="Climate change is a hoax" styleClass="preset-chip"
+                                            onAction="#handleTextPresetClimate"/>
+                                </FlowPane>
+                            </HBox>
+                        </VBox>
+                    </Tab>
+
+                    <!-- Tab 2: Image Verification -->
+                    <Tab fx:id="imageTab" text="  Image Verification  " closable="false">
+                        <VBox spacing="12.0">
+                            <padding><Insets top="12"/></padding>
+
+                            <HBox spacing="16.0" alignment="CENTER_LEFT">
+                                <!-- Drop Zone -->
+                                <StackPane fx:id="dropZone" styleClass="drop-zone"
+                                           prefHeight="90.0" prefWidth="300.0" onMouseClicked="#handleBrowse">
+                                    <VBox alignment="CENTER" spacing="5.0" fx:id="dropPromptBox">
+                                        <Label text="Drop Image or Click to Browse" styleClass="drop-label"/>
+                                        <Label text="PNG · JPG · WebP" styleClass="text-muted"/>
+                                    </VBox>
+                                    <ImageView fx:id="previewImage" visible="false"
+                                               fitWidth="290.0" fitHeight="80.0" preserveRatio="true"/>
+                                </StackPane>
+
+                                <!-- Image Metadata Strip -->
+                                <VBox fx:id="imageInfoBox" styleClass="image-inspect-card" spacing="5.0"
+                                      HBox.hgrow="ALWAYS" visible="false" managed="false">
+                                    <HBox alignment="CENTER_LEFT" spacing="8.0">
+                                        <Label text="FILE:" styleClass="section-label"/>
+                                        <Label fx:id="imageFileNameLabel" text="image.png" styleClass="text-bright" HBox.hgrow="ALWAYS"/>
+                                        <Label fx:id="imageFormatLabel" text="PNG" styleClass="meta-pill"/>
+                                        <Label fx:id="imageDimensionsLabel" text="800x600" styleClass="meta-pill"/>
+                                        <Label fx:id="imageSizeLabel" text="150 KB" styleClass="meta-pill"/>
+                                    </HBox>
+                                    <HBox alignment="CENTER_LEFT" spacing="6.0">
+                                        <Label text="SHA-256:" styleClass="section-label"/>
+                                        <Label fx:id="imageHashLabel" text="a1b2c3..." styleClass="hash-pill" HBox.hgrow="ALWAYS"/>
+                                    </HBox>
+                                </VBox>
+
+                                <!-- Image Action Buttons -->
+                                <VBox spacing="6.0" alignment="CENTER">
+                                    <Button text="Browse..." styleClass="btn-secondary" prefWidth="120.0" onAction="#handleBrowse"/>
+                                    <Button fx:id="clearImageBtn" text="Clear" styleClass="btn-ghost"
+                                            prefWidth="120.0" onAction="#handleClearImage" visible="false"/>
+                                </VBox>
+
+                                <Button fx:id="checkBtnImage" text="Verify Image"
+                                        styleClass="btn-primary" prefHeight="80.0" prefWidth="200.0"
+                                        onAction="#handleCheck"/>
+                            </HBox>
+
+                            <!-- Image Sample Chips -->
+                            <HBox spacing="8.0" alignment="CENTER_LEFT">
+                                <Label text="SAMPLE IMAGES:" styleClass="section-label"/>
+                                <FlowPane hgap="7.0" vgap="5.0" HBox.hgrow="ALWAYS" alignment="CENTER_LEFT">
+                                    <Button text="Dhaka Capital" styleClass="preset-chip" onAction="#handlePresetDhaka"/>
+                                    <Button text="5G Health Claim" styleClass="preset-chip" onAction="#handlePreset5G"/>
+                                    <Button text="Dr. Yunus Case" styleClass="preset-chip" onAction="#handlePresetYunus"/>
+                                    <Button text="Mars Water Claim" styleClass="preset-chip" onAction="#handlePresetMars"/>
+                                    <Button text="Eiffel Tower Scam" styleClass="preset-chip" onAction="#handlePresetEiffel"/>
+                                </FlowPane>
+                            </HBox>
+                        </VBox>
+                    </Tab>
+                </TabPane>
+
+                <!-- Progress Bar -->
+                <VBox spacing="5.0" fx:id="loadingBox" visible="false" managed="false">
+                    <HBox alignment="CENTER_LEFT" spacing="10.0">
+                        <ProgressIndicator fx:id="loadingSpinner" prefHeight="18.0" prefWidth="18.0"/>
+                        <Label fx:id="loadingLabel" text="Scanning and cross-referencing sources..."
+                               styleClass="text-bright" style="-fx-font-weight:700;"/>
+                    </HBox>
+                    <ProgressBar fx:id="taskProgressBar" progress="-1.0" maxWidth="Infinity" styleClass="confidence-bar"/>
+                </VBox>
+            </VBox>
+
+            <!-- ═══════════════════════════════════════════════════════════════
+                 LOWER SECTION: RESULTS & VERIFIED SOURCES
+                 ═══════════════════════════════════════════════════════════════ -->
+            <ScrollPane HBox.hgrow="ALWAYS" VBox.vgrow="ALWAYS" fitToWidth="true" styleClass="result-scroll">
+                <VBox spacing="16.0">
+
+                    <!-- Welcome / Empty State -->
+                    <VBox fx:id="emptyState" alignment="CENTER" spacing="18.0" prefHeight="400.0" styleClass="panel">
+                        <padding><Insets top="40" right="40" bottom="40" left="40"/></padding>
+                        <Label text="🔍" style="-fx-font-size:52px;"/>
+                        <Label text="Ready to Verify" styleClass="panel-title" style="-fx-font-size:22px;"/>
+                        <Label text="Enter a statement or select a sample claim above. Sondhan will cross-reference verified sources — newspapers, books, and academic journals — and show you all evidence below."
+                               styleClass="panel-subtitle" wrapText="true" textAlignment="CENTER" maxWidth="520.0"/>
+                    </VBox>
+
+                    <!-- Result View -->
+                    <VBox fx:id="resultPanel" spacing="16.0" visible="false" managed="false">
+
+                        <!-- Verdict Row -->
+                        <HBox styleClass="panel" spacing="22.0" alignment="CENTER_LEFT">
+                            <padding><Insets top="18" right="22" bottom="18" left="22"/></padding>
+
+                            <VBox spacing="5.0" alignment="CENTER_LEFT">
+                                <Label text="VERDICT" styleClass="section-label"/>
+                                <Label fx:id="verdictLabel" text="VERIFIED TRUE" styleClass="verdict-true"/>
+                            </VBox>
+
+                            <VBox spacing="7.0" HBox.hgrow="ALWAYS">
+                                <HBox alignment="CENTER_LEFT" spacing="10.0">
+                                    <Label text="CONFIDENCE INDEX" styleClass="section-label"/>
+                                    <Region HBox.hgrow="ALWAYS"/>
+                                    <Label fx:id="confidencePctLabel" text="98%" styleClass="confidence-pct"/>
+                                </HBox>
+                                <ProgressBar fx:id="confidenceBar" progress="0.98" maxWidth="Infinity" styleClass="confidence-bar"/>
+                                <HBox spacing="8.0">
+                                    <Label text="Source Coverage: High" styleClass="gauge-pill"/>
+                                    <Label text="Cross-Indexed: Yes" styleClass="gauge-pill"/>
+                                </HBox>
+                            </VBox>
+
+                            <Separator orientation="VERTICAL" prefHeight="60.0" opacity="0.2"/>
+
+                            <VBox spacing="7.0" alignment="CENTER_RIGHT">
+                                <Label fx:id="modelUsedBadge" text="Engine: Sondhan" styleClass="badge-ai-model"/>
+                                <Label fx:id="preloadedBadge" text="Preloaded Fact" styleClass="badge-free-mode"/>
+                            </VBox>
+                        </HBox>
+
+                        <!-- Analysis Card -->
+                        <VBox styleClass="panel" spacing="14.0">
+                            <padding><Insets top="18" right="22" bottom="18" left="22"/></padding>
+
+                            <VBox styleClass="claim-card" spacing="5.0">
+                                <Label text="EVALUATED STATEMENT" styleClass="section-label"/>
+                                <Label fx:id="claimLabel" styleClass="claim-text" wrapText="true"/>
+                            </VBox>
+
+                            <VBox styleClass="explanation-card" spacing="7.0">
+                                <Label text="FACTUAL ANALYSIS" styleClass="section-label"/>
+                                <Label fx:id="explanationLabel" wrapText="true" styleClass="explanation-text"/>
+                            </VBox>
+
+                            <!-- 10-Point Summary -->
+                            <VBox styleClass="summary-container" spacing="9.0" fx:id="summaryBox">
+                                <HBox alignment="CENTER_LEFT" spacing="8.0">
+                                    <Label text="10-POINT FACT SUMMARY" styleClass="section-label"/>
+                                    <Region HBox.hgrow="ALWAYS"/>
+                                    <Label fx:id="summaryStatusLabel" text="Generated" styleClass="text-muted"/>
+                                </HBox>
+                                <Label fx:id="summaryLabel" wrapText="true" styleClass="summary-item-text"/>
+                            </VBox>
+                        </VBox>
+
+                        <!-- Sources Panel -->
+                        <VBox styleClass="sources-container" spacing="14.0">
+                            <HBox alignment="CENTER_LEFT" spacing="12.0">
+                                <Label text="VERIFIED SOURCES  —  Click any source to open original article in browser"
+                                       styleClass="section-label" style="-fx-font-size:12px;"/>
+                                <Region HBox.hgrow="ALWAYS"/>
+                                <Label text="Opens in Safari" styleClass="text-muted"
+                                       style="-fx-font-size:11.5px;-fx-font-weight:bold;"/>
+                            </HBox>
+                            <VBox fx:id="sourcesBox" spacing="10.0"/>
+                        </VBox>
+
+                        <!-- Action Bar -->
+                        <HBox alignment="CENTER_RIGHT" spacing="12.0">
+                            <Button text="Copy Report" styleClass="btn-secondary" onAction="#handleCopyReport"/>
+                            <Button text="Save Report (.md)" styleClass="btn-secondary" onAction="#handleExportReportFile"/>
+                            <Button text="Verify Another" styleClass="btn-primary" onAction="#handleResetView"/>
+                        </HBox>
+
+                    </VBox>
+                </VBox>
+            </ScrollPane>
+        </VBox>
+    </center>
+</BorderPane>

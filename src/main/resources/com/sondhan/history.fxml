@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?import javafx.scene.layout.*?>
+<?import javafx.scene.control.*?>
+<?import javafx.geometry.Insets?>
+
+<BorderPane xmlns="http://javafx.com/javafx/21"
+            xmlns:fx="http://javafx.com/fxml/1"
+            fx:controller="com.sondhan.controller.HistoryController"
+            styleClass="root-pane" prefWidth="1080.0" prefHeight="740.0">
+
+    <!-- ── Top Header ────────────────────────────────────────────────── -->
+    <top>
+        <HBox styleClass="header" alignment="CENTER_LEFT" spacing="16.0">
+            <padding><Insets top="13" right="22" bottom="13" left="22"/></padding>
+
+            <Button text="← Back" styleClass="nav-btn" onAction="#handleBack"/>
+
+            <VBox spacing="1.0">
+                <Label text="Search History" styleClass="panel-title" style="-fx-font-size:18px;"/>
+                <Label fx:id="userNameLabel" text="Archived Verification History" styleClass="header-subtitle"/>
+            </VBox>
+
+            <Region HBox.hgrow="ALWAYS"/>
+
+            <Button text="Refresh" styleClass="nav-btn" onAction="#handleRefresh"/>
+        </HBox>
+    </top>
+
+    <!-- ── Main Workspace ──────────────────────────────────────────────────── -->
+    <center>
+        <VBox spacing="16.0">
+            <padding><Insets top="16" right="20" bottom="16" left="20"/></padding>
+
+            <!-- ── Top Statistics Cards ────────────────────────────────────── -->
+            <HBox spacing="14.0">
+                <VBox styleClass="stat-box" HBox.hgrow="ALWAYS" spacing="4.0">
+                    <Label text="TOTAL FACT CHECKS" styleClass="stat-label"/>
+                    <Label fx:id="totalCountLabel" text="0" styleClass="stat-number"/>
+                </VBox>
+                <VBox styleClass="stat-box" HBox.hgrow="ALWAYS" spacing="4.0">
+                    <Label text="VERIFIED TRUE" styleClass="stat-label"/>
+                    <Label fx:id="trueCountLabel" text="0" styleClass="stat-number"
+                           style="-fx-text-fill:#34d399;"/>
+                </VBox>
+                <VBox styleClass="stat-box" HBox.hgrow="ALWAYS" spacing="4.0">
+                    <Label text="DEBUNKED FALSE" styleClass="stat-label"/>
+                    <Label fx:id="falseCountLabel" text="0" styleClass="stat-number"
+                           style="-fx-text-fill:#f87171;"/>
+                </VBox>
+                <VBox styleClass="stat-box" HBox.hgrow="ALWAYS" spacing="4.0">
+                    <Label text="AVG CONFIDENCE" styleClass="stat-label"/>
+                    <Label fx:id="avgConfLabel" text="0%" styleClass="stat-number"
+                           style="-fx-text-fill:#38bdf8;"/>
+                </VBox>
+            </HBox>
+
+            <!-- ── Search & Filter Bar ──────────────────────────────────────── -->
+            <HBox spacing="12.0" alignment="CENTER_LEFT">
+                <TextField fx:id="searchFilterField" promptText="🔍 Search past claims or topics..."
+                           styleClass="input-field" HBox.hgrow="ALWAYS" prefHeight="38.0"/>
+                <ComboBox fx:id="verdictFilterCombo" styleClass="model-combo" prefWidth="160.0" prefHeight="38.0"/>
+                <Button text="📤 Export..." styleClass="btn-secondary" onAction="#handleExportHistory"/>
+                <Button text="🗑️ Delete" styleClass="btn-danger" onAction="#handleDeleteSelected"/>
+                <Button text="🧹 Clear All" styleClass="btn-secondary" onAction="#handleClearAll"/>
+            </HBox>
+
+            <!-- ── Table & Detail Split ────────────────────────────────────── -->
+            <HBox spacing="16.0" VBox.vgrow="ALWAYS">
+
+                <!-- Table Container -->
+                <VBox styleClass="panel" HBox.hgrow="ALWAYS" spacing="8.0">
+                    <padding><Insets top="12" right="12" bottom="12" left="12"/></padding>
+
+                    <StackPane VBox.vgrow="ALWAYS">
+                        <TableView fx:id="historyTable" VBox.vgrow="ALWAYS" styleClass="history-table">
+                            <columns>
+                                <TableColumn fx:id="dateCol"    text="Date &amp; Time" prefWidth="145"/>
+                                <TableColumn fx:id="typeCol"    text="Input"           prefWidth="75"/>
+                                <TableColumn fx:id="claimCol"   text="Claim Statement" prefWidth="280"/>
+                                <TableColumn fx:id="verdictCol" text="Verdict"         prefWidth="110"/>
+                                <TableColumn fx:id="confCol"    text="Conf %"          prefWidth="75"/>
+                                <TableColumn fx:id="modelCol"   text="AI Engine"       prefWidth="120"/>
+                            </columns>
+                            <placeholder>
+                                <Label text="No search records found. Run fact checks on the Home screen to build your archive."
+                                       styleClass="text-muted"/>
+                            </placeholder>
+                        </TableView>
+
+                        <ProgressIndicator fx:id="loadingSpinner" prefHeight="36.0" visible="false"/>
+                    </StackPane>
+                </VBox>
+
+                <!-- Detail Panel (Shows on selection) -->
+                <VBox fx:id="detailPanel" styleClass="panel" spacing="12.0" prefWidth="360.0" minWidth="320.0"
+                      visible="false" managed="false">
+                    <padding><Insets top="18" right="16" bottom="18" left="16"/></padding>
+
+                    <HBox alignment="CENTER_LEFT" spacing="8.0">
+                        <Label text="ARCHIVE RECORD DETAILS" styleClass="section-label" HBox.hgrow="ALWAYS"/>
+                        <Label fx:id="detailAiModelLabel" text="AI Model" styleClass="badge-ai-model"/>
+                    </HBox>
+
+                    <!-- Claim -->
+                    <VBox styleClass="claim-card" spacing="4.0">
+                        <Label text="CLAIM" styleClass="section-label"/>
+                        <Label fx:id="detailClaimLabel" wrapText="true" styleClass="claim-text"
+                               style="-fx-font-size:13.5px;"/>
+                    </VBox>
+
+                    <!-- Verdict + Confidence -->
+                    <HBox alignment="CENTER_LEFT" spacing="12.0">
+                        <Label fx:id="detailVerdictLabel" text="TRUE" styleClass="verdict-true"
+                               style="-fx-font-size:14px;-fx-padding:4 14;"/>
+                        <Label fx:id="detailConfLabel" text="98% Confidence" styleClass="confidence-pct"
+                               style="-fx-font-size:13px;"/>
+                    </HBox>
+
+                    <!-- Explanation -->
+                    <VBox styleClass="explanation-card" spacing="4.0" VBox.vgrow="ALWAYS">
+                        <Label text="RATIONALE &amp; EXPLANATION" styleClass="section-label"/>
+                        <ScrollPane fitToWidth="true" styleClass="result-scroll" VBox.vgrow="ALWAYS">
+                            <Label fx:id="detailExplanationLabel" wrapText="true" styleClass="explanation-text"
+                                   style="-fx-font-size:12.5px;"/>
+                        </ScrollPane>
+                    </VBox>
+
+                    <!-- Sources List -->
+                    <VBox spacing="6.0">
+                        <Label text="CITED SOURCES" styleClass="section-label"/>
+                        <ScrollPane fitToWidth="true" styleClass="result-scroll" prefHeight="130.0">
+                            <VBox fx:id="detailSourcesBox" spacing="6.0"/>
+                        </ScrollPane>
+                    </VBox>
+                </VBox>
+
+            </HBox>
+        </VBox>
+    </center>
+</BorderPane>
