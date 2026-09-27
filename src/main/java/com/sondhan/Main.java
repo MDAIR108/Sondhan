@@ -140,9 +140,10 @@ public class Main extends Application {
         if (url == null) throw new RuntimeException("FXML not found: /com/sondhan/" + fxml);
         FXMLLoader loader = new FXMLLoader(url);
         Parent root = loader.load();
+        // Plain/default JavaFX look-and-feel: no external stylesheet is attached.
+        // (All layout comes from the FXML files; dynamic result rows built in the
+        // controllers use only structural containers plus minimal inline styles.)
         Scene scene = new Scene(root, w, h);
-        java.net.URL css = Main.class.getResource("/com/sondhan/styles.css");
-        if (css != null) scene.getStylesheets().add(css.toExternalForm());
         primaryStage.setScene(scene);
     }
 
