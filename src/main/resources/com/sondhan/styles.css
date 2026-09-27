@@ -326,6 +326,7 @@
    context, so .model-combo .combo-popup selectors may not match.
    These global selectors ensure the popup is styled regardless. */
 
+/* Dark theme (default) */
 .combo-box-popup .list-view {
     -fx-background-color: #0c182c;
     -fx-border-color: rgba(52, 211, 153, 0.4);
@@ -354,6 +355,37 @@
 .combo-box-popup .list-cell:filled:selected:hover {
     -fx-background-color: rgba(52, 211, 153, 0.28);
     -fx-text-fill: #34d399;
+}
+
+/* Light theme overrides */
+.light-mode .combo-box-popup .list-view {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #cbd5e1;
+    -fx-border-radius: 8;
+    -fx-background-radius: 8;
+}
+
+.light-mode .combo-box-popup .list-cell {
+    -fx-text-fill: #0f172a;
+    -fx-background-color: #ffffff;
+    -fx-font-size: 12.5px;
+    -fx-font-weight: 700;
+    -fx-padding: 8 14;
+}
+
+.light-mode .combo-box-popup .list-cell:filled:hover {
+    -fx-background-color: #f1f5f9;
+    -fx-text-fill: #059669;
+}
+
+.light-mode .combo-box-popup .list-cell:filled:selected {
+    -fx-background-color: #d1fae5;
+    -fx-text-fill: #059669;
+}
+
+.light-mode .combo-box-popup .list-cell:filled:selected:hover {
+    -fx-background-color: #d1fae5;
+    -fx-text-fill: #059669;
 }
 
 /* Also keep the .model-combo specific selectors for redundancy */

@@ -375,6 +375,17 @@ public class PreloadedDatabase {
                 r.setSummary(bestMatch.entry.summary);
                 r.setPreloaded(true);
                 r.setAiModel("Preloaded Visual Forensics Engine");
+                // Evidence buckets from the flat archive list so Evidence Balance renders.
+                r.classifySourcesFromFlat();
+                // Single sourced timeline event from the archive entry itself —
+                // no fabricated dates, the source is the catalog entry.
+                r.setTimeline(List.of(
+                    new FactCheckResult.TimelineEvent(
+                        bestMatch.entry.knownDate != null ? bestMatch.entry.knownDate : "Archived",
+                        "Archived Reference: " + bestMatch.entry.claim,
+                        bestMatch.entry.explanation != null ? bestMatch.entry.explanation : "",
+                        bestMatch.entry.knownSource != null ? bestMatch.entry.knownSource : "Preloaded Archive")
+                ));
 
                 // Populate forensic side-by-side metadata
                 r.setOriginalImageUrl(bestMatch.file.toURI().toString());
@@ -413,6 +424,17 @@ public class PreloadedDatabase {
         r.setSummary(e.summary);
         r.setPreloaded(true);
         r.setAiModel("Preloaded Database");
+        // Evidence buckets from the flat archive list so Evidence Balance renders
+        // in Image mode identically to Text/URL modes.
+        r.classifySourcesFromFlat();
+        // Single sourced timeline event from the archive entry itself.
+        r.setTimeline(List.of(
+            new FactCheckResult.TimelineEvent(
+                e.knownDate != null ? e.knownDate : "Archived",
+                "Archived Reference: " + e.claim,
+                e.explanation != null ? e.explanation : "",
+                e.knownSource != null ? e.knownSource : "Preloaded Archive")
+        ));
 
         if (file != null) {
             r.setOriginalImageUrl(file.toURI().toString());

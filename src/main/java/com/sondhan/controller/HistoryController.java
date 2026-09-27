@@ -76,9 +76,9 @@ public class HistoryController {
 
     // ── Analytics Dashboard (Feature 4) ───────────────────────────────────────
     @FXML private VBox  analyticsSection;
-    @FXML private HBox  verdictDistributionBox;
+    @FXML private VBox  verdictDistributionBox;
     @FXML private HBox  verificationMethodsBox;
-    @FXML private HBox  sourceDistributionBox;
+    @FXML private VBox  sourceDistributionBox;
     @FXML private VBox  recentActivityBox;
     @FXML private ProgressIndicator analyticsSpinner;
 

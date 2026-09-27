@@ -139,6 +139,9 @@ public class HomeController {
             }
         };
         FactCheckerService.getExecutor().submit(preloadTask);
+
+        // 6. Apply theme class to ComboBox popup (separate window)
+        applyThemeToComboBoxPopup();
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -1413,6 +1416,27 @@ public class HomeController {
                 scene.getRoot().getStyleClass().remove("light-mode");
             }
         }
+        // Also apply theme class to ComboBox popup (separate window)
+        applyThemeToComboBoxPopup();
+    }
+
+    /**
+     * Applies the current theme class to the ComboBox popup's scene.
+     * The popup is a separate window and doesn't inherit the main scene's style classes.
+     */
+    private void applyThemeToComboBoxPopup() {
+        if (modelSelector == null) return;
+        modelSelector.setOnShowing(event -> {
+            if (modelSelector.getScene() != null && modelSelector.getScene().getRoot() != null) {
+                if (isLightAccent) {
+                    if (!modelSelector.getScene().getRoot().getStyleClass().contains("light-mode")) {
+                        modelSelector.getScene().getRoot().getStyleClass().add("light-mode");
+                    }
+                } else {
+                    modelSelector.getScene().getRoot().getStyleClass().remove("light-mode");
+                }
+            }
+        });
     }
 
     @FXML private void handleResetView() {
