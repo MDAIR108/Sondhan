@@ -1,6 +1,8 @@
 package com.sondhan.controller;
 
 import com.sondhan.Main;
+import com.sondhan.model.ArticleAnalysisResult;
+import com.sondhan.model.ArticleClaimResult;
 import com.sondhan.model.FactCheckResult;
 import com.sondhan.service.*;
 import com.sondhan.util.ImageHashUtil;
@@ -17,6 +19,8 @@ import javafx.scene.input.Clipboard;
 import javafx.scene.input.ClipboardContent;
 import javafx.scene.input.TransferMode;
 import javafx.scene.layout.*;
+import javafx.scene.shape.Circle;
+import javafx.scene.shape.Rectangle;
 import javafx.stage.FileChooser;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -26,6 +30,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.net.URI;
 import java.util.List;
+import java.util.Map;
 
 /**
  * ──────────────────────────────────────────────────────────────────────────────
@@ -86,8 +91,18 @@ public class HomeController {
     @FXML private VBox      correctionCard;
     @FXML private Label     correctionLabel;
 
+    // ── Article Analysis (Feature 3) ──────────────────────────────────────────
+    @FXML private VBox      articleAnalysisCard;
+    @FXML private VBox      articleInfoCard;
+    @FXML private Label     articleTitleLabel, articlePublisherLabel, articleDateLabel;
+    @FXML private VBox      detectedClaimsBox;
+    @FXML private VBox      articleAssessmentCard;
+    @FXML private Label     articleOverallVerdictLabel, articleOverallSummaryLabel;
+    @FXML private HBox      articleBreakdownBox;
+
     private File selectedImageFile;
     private FactCheckResult currentResult;
+    private ArticleAnalysisResult currentArticleResult;
 
     // ── Initialization ────────────────────────────────────────────────────────
 
@@ -380,25 +395,19 @@ public class HomeController {
     }
 
     /**
-     * Topic 2: URL Verification Task running on ExecutorService daemon pool.
+     * Feature 3: Full URL Article Analysis Task running on ExecutorService daemon pool.
+     * Uses ArticleAnalysisService for multi-claim detection and verification.
      */
     private void executeUrlTask(String model, String urlStr) {
-        Task<FactCheckResult> task = new Task<>() {
-            @Override protected FactCheckResult call() throws Exception {
-                updateMessage("Connecting to URL and extracting page content...");
-                updateProgress(0.20, 1.0);
-
-                updateMessage("Inspecting visual elements & computing perceptual hash...");
-                updateProgress(0.50, 1.0);
-
-                FactCheckResult res = FactCheckerService.checkUrlClaim(model, urlStr);
-
-                updateMessage("Synthesizing citations and factual verification report...");
-                updateProgress(0.95, 1.0);
-                return res;
+        Task<ArticleAnalysisResult> task = new Task<>() {
+            @Override protected ArticleAnalysisResult call() throws Exception {
+                return ArticleAnalysisService.analyzeArticle(model, urlStr, msg -> {
+                    updateMessage(msg);
+                    updateProgress(getProgress() + 0.15, 1.0);
+                });
             }
         };
-        wireTask(task, "url", urlStr, model);
+        wireArticleTask(task, "url", urlStr, model);
     }
 
     /**
@@ -472,11 +481,44 @@ public class HomeController {
         FactCheckerService.getExecutor().submit(task);
     }
 
+    /**
+     * Feature 3: Article Analysis Task wiring – displays multi-claim results.
+     */
+    private void wireArticleTask(Task<ArticleAnalysisResult> task, String inputType, String originalInput, String modelName) {
+        loadingLabel.textProperty().bind(task.messageProperty());
+        taskProgressBar.progressProperty().bind(task.progressProperty());
+
+        task.setOnSucceeded(e -> Platform.runLater(() -> {
+            loadingLabel.textProperty().unbind();
+            taskProgressBar.progressProperty().unbind();
+            setLoading(false);
+            ArticleAnalysisResult res = task.getValue();
+            currentArticleResult = res;
+            displayArticleAnalysis(res, inputType, originalInput);
+        }));
+
+        task.setOnFailed(e -> Platform.runLater(() -> {
+            loadingLabel.textProperty().unbind();
+            taskProgressBar.progressProperty().unbind();
+            setLoading(false);
+            Throwable err = task.getException();
+            alert("Article Analysis Error", err != null ? err.getMessage() : "Unknown article analysis failure.");
+        }));
+
+        FactCheckerService.getExecutor().submit(task);
+    }
+
     // ═════════════════════════════════════════════════════════════════════════
     //  Result Presentation & Categorized Sources System
     // ═════════════════════════════════════════════════════════════════════════
 
     private void displayResult(FactCheckResult r, String inputType, String originalInput) {
+        // Hide article analysis card for single-result display
+        if (articleAnalysisCard != null) {
+            articleAnalysisCard.setVisible(false);
+            articleAnalysisCard.setManaged(false);
+        }
+
         claimLabel.setText(r.getClaim());
 
         // 1. Verdict Badge Styling
@@ -591,7 +633,21 @@ public class HomeController {
             sourcesBox.getChildren().add(noSrc);
         }
 
-        // 6. 10-Point Summary Generation
+        // Feature 1: Evidence Balance section (added to sourcesBox)
+        int supCount  = r.getSupportingSources()    != null ? r.getSupportingSources().size()    : 0;
+        int conCount  = r.getContradictingSources() != null ? r.getContradictingSources().size() : 0;
+        int neuCount  = r.getNeutralSources()       != null ? r.getNeutralSources().size()       : 0;
+        int totalEvidence = supCount + conCount + neuCount;
+        if (totalEvidence > 0) {
+            sourcesBox.getChildren().add(buildEvidenceBalanceSection(supCount, conCount, neuCount, totalEvidence));
+        }
+
+        // Feature 2: Claim Timeline section (added to sourcesBox)
+        if (r.getTimeline() != null && !r.getTimeline().isEmpty()) {
+            sourcesBox.getChildren().add(buildTimelineSection(r.getTimeline()));
+        }
+
+        // 9. 10-Point Summary Generation
         if (r.getSummary() != null && !r.getSummary().isEmpty()) {
             summaryLabel.setText(String.join("\n", r.getSummary()));
             summaryStatusLabel.setText("Complete");
@@ -601,13 +657,444 @@ public class HomeController {
             generateSummaryTask(r);
         }
 
-        // 7. Topic 3: Save to SQLite searches table (Background Thread)
+        // 10. Topic 3: Save to SQLite searches table (Background Thread)
         if (!SessionManager.isGuest()) {
             saveSearchToDatabase(r, inputType, originalInput);
         }
 
         showResult();
     }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  Feature 3: Article Analysis Display (Multi-Claim URL Verification)
+    // ═════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Displays the full article analysis result: article info, detected claims, and assessment.
+     */
+    private void displayArticleAnalysis(ArticleAnalysisResult article, String inputType, String originalInput) {
+        // Hide single-result specific panels, show article analysis card
+        if (articleAnalysisCard != null) {
+            articleAnalysisCard.setVisible(true);
+            articleAnalysisCard.setManaged(true);
+        }
+
+        // 1. Article Info Card
+        articleTitleLabel.setText(article.getTitle() != null ? article.getTitle() : "Untitled Article");
+        articlePublisherLabel.setText(article.getPublisher() != null && !article.getPublisher().isBlank()
+                ? article.getPublisher() : "Unknown Publisher");
+        articleDateLabel.setText(article.getPublishDate() != null && !article.getPublishDate().isBlank()
+                ? article.getPublishDate() : "");
+
+        // 2. Detected Claims List
+        detectedClaimsBox.getChildren().clear();
+        if (article.getClaims() != null) {
+            for (int i = 0; i < article.getClaims().size(); i++) {
+                ArticleClaimResult cr = article.getClaims().get(i);
+                HBox claimCard = buildClaimCard(cr, i);
+                detectedClaimsBox.getChildren().add(claimCard);
+            }
+        }
+
+        // 3. Article Assessment Card
+        String overallV = article.getOverallVerdict();
+        articleOverallVerdictLabel.setText(switch (overallV != null ? overallV.toUpperCase() : "") {
+            case "ACCURATE"                -> "✅ ACCURATE";
+            case "POTENTIALLY MISLEADING"  -> "⚠️ POTENTIALLY MISLEADING";
+            case "CONTAINS FALSE CLAIMS"   -> "❌ CONTAINS FALSE CLAIMS";
+            default                        -> "❓ UNVERIFIED";
+        });
+        articleOverallVerdictLabel.getStyleClass().removeAll("verdict-true", "verdict-false", "verdict-misleading", "verdict-unverified", "verdict-modified");
+        articleOverallVerdictLabel.getStyleClass().add(switch (overallV != null ? overallV.toUpperCase() : "") {
+            case "ACCURATE"                -> "verdict-true";
+            case "POTENTIALLY MISLEADING"  -> "verdict-misleading";
+            case "CONTAINS FALSE CLAIMS"   -> "verdict-false";
+            default                        -> "verdict-unverified";
+        });
+        articleOverallSummaryLabel.setText(article.getOverallSummary() != null ? article.getOverallSummary() : "");
+
+        // Breakdown counts
+        articleBreakdownBox.getChildren().clear();
+        if (article.getClaims() != null) {
+            long trueCount  = article.getClaims().stream().filter(c -> "TRUE".equalsIgnoreCase(c.getVerdict())).count();
+            long falseCount = article.getClaims().stream().filter(c -> "FALSE".equalsIgnoreCase(c.getVerdict()) || "MODIFIED / OUT OF CONTEXT".equalsIgnoreCase(c.getVerdict())).count();
+            long misCount   = article.getClaims().stream().filter(c -> "MISLEADING".equalsIgnoreCase(c.getVerdict())).count();
+            long unvCount   = article.getClaims().stream().filter(c -> "UNVERIFIED".equalsIgnoreCase(c.getVerdict())).count();
+
+            articleBreakdownBox.getChildren().addAll(
+                buildBreakdownPill("✓ Supported", (int) trueCount, "#34d399"),
+                buildBreakdownPill("⚠ Misleading", (int) misCount, "#fbbf24"),
+                buildBreakdownPill("✕ Unsupported", (int) falseCount, "#f87171"),
+                buildBreakdownPill("? Unverified", (int) unvCount, "#94a3b8")
+            );
+        }
+
+        // 4. Save to database (parent search + article_claims rows)
+        if (!SessionManager.isGuest()) {
+            saveArticleAnalysisToDatabase(article, inputType, originalInput);
+        }
+
+        showResult();
+    }
+
+    /**
+     * Builds a clickable claim card for the detected claims list.
+     * Clicking expands/collapses the full claim detail view.
+     */
+    private HBox buildClaimCard(ArticleClaimResult cr, int index) {
+        HBox card = new HBox(12);
+        card.setAlignment(Pos.CENTER_LEFT);
+        card.getStyleClass().add("source-card");
+        card.setStyle(card.getStyle() + "; -fx-cursor: hand;");
+
+        // Verdict icon
+        String verdict = cr.getVerdict();
+        Label iconLabel = new Label(switch (verdict != null ? verdict.toUpperCase() : "") {
+            case "TRUE"                   -> "✅";
+            case "FALSE"                  -> "✕";
+            case "MISLEADING"             -> "⚠";
+            case "MODIFIED / OUT OF CONTEXT" -> "⚡";
+            default                        -> "?";
+        });
+        iconLabel.setStyle("-fx-font-size: 16px;");
+
+        // Claim text + confidence
+        VBox infoBox = new VBox(3);
+        HBox.setHgrow(infoBox, Priority.ALWAYS);
+
+        Label claimText = new Label(cr.getDetectedClaim());
+        claimText.setStyle("-fx-text-fill: #F0F6FC; -fx-font-weight: 600; -fx-font-size: 13px;");
+        claimText.setWrapText(true);
+
+        Label confLabel = new Label(cr.getConfidence() + "% confidence");
+        confLabel.setStyle("-fx-text-fill: #94A3B8; -fx-font-size: 11px;");
+
+        infoBox.getChildren().addAll(claimText, confLabel);
+
+        // Expand indicator
+        Label expandLabel = new Label("▶");
+        expandLabel.setStyle("-fx-text-fill: #38BDF8; -fx-font-size: 11px;");
+
+        card.getChildren().addAll(iconLabel, infoBox, expandLabel);
+
+        // Click to expand/collapse detail
+        card.setOnMouseClicked(ev -> {
+            ev.consume();
+            toggleClaimDetail(card, cr, expandLabel);
+        });
+
+        return card;
+    }
+
+    /**
+     * Toggles the expanded detail view for a claim card.
+     */
+    private void toggleClaimDetail(HBox claimCard, ArticleClaimResult cr, Label expandLabel) {
+        // Check if detail is already shown (next sibling in parent)
+        VBox parent = (VBox) claimCard.getParent();
+        int idx = parent.getChildren().indexOf(claimCard);
+        boolean hasDetail = idx + 1 < parent.getChildren().size()
+                && parent.getChildren().get(idx + 1).getUserData() != null
+                && "claimDetail".equals(parent.getChildren().get(idx + 1).getUserData());
+
+        if (hasDetail) {
+            // Remove detail
+            parent.getChildren().remove(idx + 1);
+            expandLabel.setText("▶");
+        } else {
+            // Add detail
+            expandLabel.setText("▼");
+            VBox detail = buildClaimDetailView(cr);
+            detail.setUserData("claimDetail");
+            parent.getChildren().add(idx + 1, detail);
+        }
+    }
+
+    /**
+     * Builds the full detail view for a claim (evidence balance, timeline, sources, correction).
+     */
+    private VBox buildClaimDetailView(ArticleClaimResult cr) {
+        VBox detail = new VBox(10);
+        detail.setStyle("-fx-padding: 12 16; -fx-background-color: #060b14; -fx-background-radius: 8; -fx-border-color: rgba(56,189,248,0.15); -fx-border-radius: 8;");
+
+        FactCheckResult r = cr.getResult();
+        if (r == null) {
+            Label lbl = new Label("No detailed result available.");
+            lbl.setStyle("-fx-text-fill: #94a3b8;");
+            detail.getChildren().add(lbl);
+            return detail;
+        }
+
+        // Verdict + confidence
+        HBox verdictRow = new HBox(10);
+        verdictRow.setAlignment(Pos.CENTER_LEFT);
+        Label vLabel = new Label(r.getVerdict());
+        vLabel.setStyle("-fx-font-weight: 800; -fx-font-size: 13px; -fx-text-fill: " + getVerdictColor(r.getVerdict()) + ";");
+        Label cLabel = new Label(r.getConfidence() + "%");
+        cLabel.setStyle("-fx-text-fill: #38bdf8; -fx-font-weight: 700;");
+        verdictRow.getChildren().addAll(vLabel, cLabel);
+        detail.getChildren().add(verdictRow);
+
+        // Explanation
+        if (r.getExplanation() != null && !r.getExplanation().isBlank()) {
+            Label explLabel = new Label(r.getExplanation());
+            explLabel.setStyle("-fx-text-fill: #cbd5e1; -fx-font-size: 12px;");
+            explLabel.setWrapText(true);
+            detail.getChildren().add(explLabel);
+        }
+
+        // Correction
+        if (r.getCorrection() != null && !r.getCorrection().isBlank()) {
+            Label corrLabel = new Label("💡 " + r.getCorrection());
+            corrLabel.setStyle("-fx-text-fill: #34d399; -fx-font-size: 12px;");
+            corrLabel.setWrapText(true);
+            detail.getChildren().add(corrLabel);
+        }
+
+        // Evidence balance
+        int supCount = r.getSupportingSources() != null ? r.getSupportingSources().size() : 0;
+        int conCount = r.getContradictingSources() != null ? r.getContradictingSources().size() : 0;
+        int neuCount = r.getNeutralSources() != null ? r.getNeutralSources().size() : 0;
+        int total = supCount + conCount + neuCount;
+        if (total > 0) {
+            detail.getChildren().add(buildEvidenceBalanceSection(supCount, conCount, neuCount, total));
+        }
+
+        // Timeline
+        if (r.getTimeline() != null && !r.getTimeline().isEmpty()) {
+            detail.getChildren().add(buildTimelineSection(r.getTimeline()));
+        }
+
+        // Sources
+        if (r.getSources() != null && !r.getSources().isEmpty()) {
+            Label srcHeader = new Label("📚 SOURCES");
+            srcHeader.setStyle("-fx-font-size: 10px; -fx-font-weight: 700; -fx-text-fill: #94A3B8;");
+            detail.getChildren().add(srcHeader);
+            for (FactCheckResult.Source s : r.getSources()) {
+                HBox srcCard = buildSourceCard(s);
+                detail.getChildren().add(srcCard);
+            }
+        }
+
+        return detail;
+    }
+
+    private String getVerdictColor(String verdict) {
+        if (verdict == null) return "#94a3b8";
+        return switch (verdict.toUpperCase()) {
+            case "TRUE"                   -> "#34d399";
+            case "FALSE"                  -> "#f87171";
+            case "MISLEADING"             -> "#fbbf24";
+            case "MODIFIED / OUT OF CONTEXT" -> "#fed7aa";
+            default                        -> "#94a3b8";
+        };
+    }
+
+    private Label buildBreakdownPill(String label, int count, String color) {
+        Label pill = new Label(label + ": " + count);
+        pill.setStyle("-fx-background-color: " + color + "22; -fx-text-fill: " + color + ";"
+                + " -fx-font-size: 11px; -fx-font-weight: 700; -fx-padding: 4 10; -fx-background-radius: 8;");
+        return pill;
+    }
+
+    /**
+     * Feature 3: Saves article analysis to DB — parent search row + per-claim article_claims rows.
+     */
+    private void saveArticleAnalysisToDatabase(ArticleAnalysisResult article, String type, String orig) {
+        int uid = SessionManager.getCurrentUser().getId();
+        ObjectMapper mapper = new ObjectMapper();
+
+        // Compute average confidence
+        int avgConf = 0;
+        if (article.getClaims() != null && !article.getClaims().isEmpty()) {
+            int total = 0;
+            for (ArticleClaimResult cr : article.getClaims()) {
+                total += cr.getConfidence();
+            }
+            avgConf = total / article.getClaims().size();
+        }
+
+        // Serialize sources from first claim (for the parent search row)
+        String sourcesJson = "[]";
+        if (article.getClaims() != null && !article.getClaims().isEmpty()) {
+            FactCheckResult firstResult = article.getClaims().get(0).getResult();
+            if (firstResult != null && firstResult.getSources() != null) {
+                try {
+                    ArrayNode arr = mapper.createArrayNode();
+                    for (FactCheckResult.Source s : firstResult.getSources()) {
+                        ObjectNode n = mapper.createObjectNode();
+                        n.put("title", s.title);
+                        n.put("url", s.url);
+                        n.put("type", s.type);
+                        n.put("publisher", s.publisher != null ? s.publisher : "");
+                        arr.add(n);
+                    }
+                    sourcesJson = mapper.writeValueAsString(arr);
+                } catch (Exception ignored) {}
+            }
+        }
+
+        final String finalSourcesJson = sourcesJson;
+        final int finalAvgConf = avgConf;
+        final String overallVerdict = article.getOverallVerdict() != null ? article.getOverallVerdict() : "UNVERIFIED";
+        final String overallSummary = article.getOverallSummary() != null ? article.getOverallSummary() : "";
+
+        Task<Integer> dbTask = new Task<>() {
+            @Override protected Integer call() throws Exception {
+                int searchId = DatabaseService.getInstance().saveSearch(
+                    uid, type, orig,
+                    article.getTitle() != null ? article.getTitle() : "Article Analysis",
+                    overallVerdict, finalAvgConf, overallSummary,
+                    finalSourcesJson, false, "Article Analysis",
+                    article.getUrl(), null, null, null, null, null
+                );
+
+                // Save per-claim rows
+                if (searchId > 0 && article.getClaims() != null) {
+                    for (ArticleClaimResult cr : article.getClaims()) {
+                        FactCheckResult r = cr.getResult();
+                        String evidenceJson = "[]";
+                        if (r != null && r.getSources() != null) {
+                            try {
+                                ArrayNode arr = mapper.createArrayNode();
+                                for (FactCheckResult.Source s : r.getSources()) {
+                                    ObjectNode n = mapper.createObjectNode();
+                                    n.put("title", s.title);
+                                    n.put("url", s.url);
+                                    n.put("type", s.type);
+                                    n.put("publisher", s.publisher != null ? s.publisher : "");
+                                    arr.add(n);
+                                }
+                                evidenceJson = mapper.writeValueAsString(arr);
+                            } catch (Exception ignored) {}
+                        }
+                        DatabaseService.getInstance().saveArticleClaim(
+                            searchId, cr.getDetectedClaim(), cr.getVerdict(), cr.getConfidence(), evidenceJson
+                        );
+                    }
+                }
+                return searchId;
+            }
+        };
+        dbTask.setOnSucceeded(e -> Platform.runLater(() -> {
+            int id = dbTask.getValue();
+            if (id > 0 && article.getClaims() != null && !article.getClaims().isEmpty()) {
+                article.setSearchId(id);
+            }
+        }));
+        FactCheckerService.getExecutor().submit(dbTask);
+    }
+
+    /**
+     * Feature 1: Builds the Evidence Balance section with three proportional horizontal bars.
+     */
+    private VBox buildEvidenceBalanceSection(int supCount, int conCount, int neuCount, int total) {
+        VBox section = new VBox(10);
+        section.setStyle("-fx-padding: 18 0 6 0;");
+
+        Label header = new Label("⚖️ EVIDENCE BALANCE");
+        header.setStyle("-fx-font-size: 11px; -fx-font-weight: 700; -fx-text-fill: #94A3B8; -fx-letter-spacing: 1px;");
+
+        section.getChildren().add(header);
+        section.getChildren().add(buildEvidenceBar("✅ Supporting",    supCount, total, "#10B981", "#064E3B"));
+        section.getChildren().add(buildEvidenceBar("❌ Contradicting", conCount, total, "#EF4444", "#7F1D1D"));
+        section.getChildren().add(buildEvidenceBar("➖ Neutral",       neuCount, total, "#94A3B8", "#1E293B"));
+
+        return section;
+    }
+
+    private HBox buildEvidenceBar(String label, int count, int total, String fillColor, String bgColor) {
+        HBox row = new HBox(10);
+        row.setAlignment(Pos.CENTER_LEFT);
+
+        Label nameLabel = new Label(label);
+        nameLabel.setStyle("-fx-text-fill: #CBD5E1; -fx-font-size: 12px; -fx-min-width: 140px;");
+
+        HBox trackBg = new HBox();
+        trackBg.setStyle("-fx-background-color: " + bgColor + "; -fx-background-radius: 4; -fx-min-height: 10; -fx-min-width: 200px;");
+        HBox.setHgrow(trackBg, Priority.ALWAYS);
+
+        double pct = total > 0 ? (double) count / total : 0;
+        HBox fill = new HBox();
+        fill.setStyle("-fx-background-color: " + fillColor + "; -fx-background-radius: 4; -fx-min-height: 10;");
+        fill.setPrefWidth(200 * pct);
+        trackBg.getChildren().add(fill);
+
+        Label countLabel = new Label(count + " source" + (count != 1 ? "s" : ""));
+        countLabel.setStyle("-fx-text-fill: #64748B; -fx-font-size: 11px;");
+
+        row.getChildren().addAll(nameLabel, trackBg, countLabel);
+        return row;
+    }
+
+    /**
+     * Feature 2: Builds the Claim Timeline section as a vertical card list with connecting line.
+     */
+    private VBox buildTimelineSection(java.util.List<FactCheckResult.TimelineEvent> events) {
+        VBox section = new VBox(0);
+        section.setStyle("-fx-padding: 18 0 0 0;");
+
+        Label header = new Label("🕐 CLAIM TIMELINE");
+        header.setStyle("-fx-font-size: 11px; -fx-font-weight: 700; -fx-text-fill: #94A3B8; -fx-letter-spacing: 1px; -fx-padding: 0 0 12 0;");
+        section.getChildren().add(header);
+
+        for (int i = 0; i < events.size(); i++) {
+            FactCheckResult.TimelineEvent ev = events.get(i);
+            boolean isLast = (i == events.size() - 1);
+            section.getChildren().add(buildTimelineEntry(ev, isLast));
+        }
+        return section;
+    }
+
+    private HBox buildTimelineEntry(FactCheckResult.TimelineEvent ev, boolean isLast) {
+        HBox row = new HBox(14);
+        row.setAlignment(Pos.TOP_LEFT);
+
+        // Dot + vertical line
+        VBox indicator = new VBox(0);
+        indicator.setAlignment(Pos.TOP_CENTER);
+        indicator.setMinWidth(16);
+
+        javafx.scene.shape.Circle dot = new javafx.scene.shape.Circle(6);
+        dot.setStyle("-fx-fill: #14B8A6;");
+
+        if (!isLast) {
+            javafx.scene.shape.Rectangle line = new javafx.scene.shape.Rectangle(2, 40);
+            line.setStyle("-fx-fill: #1E293B;");
+            line.setTranslateX(7);
+            indicator.getChildren().addAll(dot, line);
+        } else {
+            indicator.getChildren().add(dot);
+        }
+
+        // Content
+        VBox content = new VBox(4);
+        HBox.setHgrow(content, Priority.ALWAYS);
+        content.setStyle("-fx-padding: 0 0 16 0;");
+
+        Label dateLabel = new Label(ev.date != null ? ev.date : "");
+        dateLabel.setStyle("-fx-text-fill: #14B8A6; -fx-font-size: 11px; -fx-font-weight: 700;");
+
+        Label titleLabel = new Label(ev.title != null ? ev.title : "");
+        titleLabel.setStyle("-fx-text-fill: #F0F6FC; -fx-font-size: 13px; -fx-font-weight: 600;");
+        titleLabel.setWrapText(true);
+
+        Label descLabel = new Label(ev.description != null ? ev.description : "");
+        descLabel.setStyle("-fx-text-fill: #94A3B8; -fx-font-size: 12px;");
+        descLabel.setWrapText(true);
+
+        content.getChildren().addAll(dateLabel, titleLabel, descLabel);
+
+        if (ev.source != null && !ev.source.isBlank()) {
+            Label srcLabel = new Label("📄 " + ev.source);
+            srcLabel.setStyle("-fx-text-fill: #64748B; -fx-font-size: 11px; -fx-font-style: italic;");
+            content.getChildren().add(srcLabel);
+        }
+
+        row.getChildren().addAll(indicator, content);
+        return row;
+    }
+
 
     /**
      * Builds a visual source card with category badge, source metadata, and clickable native browser redirect.
@@ -736,10 +1223,13 @@ public class HomeController {
 
     /**
      * Topic 3: Asynchronously persists fact-check results into SQLite searches table.
+     * Extended with evidence JSON blobs and timeline (Features 1, 2).
      */
     private void saveSearchToDatabase(FactCheckResult r, String type, String orig) {
         int uid = SessionManager.getCurrentUser().getId();
         ObjectMapper mapper = new ObjectMapper();
+
+        // Serialize flat sources list
         ArrayNode arr = mapper.createArrayNode();
         if (r.getSources() != null) {
             for (FactCheckResult.Source s : r.getSources()) {
@@ -747,6 +1237,7 @@ public class HomeController {
                 node.put("title", s.title);
                 node.put("url", s.url);
                 node.put("type", s.type);
+                node.put("publisher", s.publisher != null ? s.publisher : "");
                 arr.add(node);
             }
         }
@@ -754,19 +1245,61 @@ public class HomeController {
         try { jsonTemp = mapper.writeValueAsString(arr); }
         catch (Exception ex) { jsonTemp = "[]"; }
         final String sourcesJson = jsonTemp;
+
+        // Serialize supporting evidence
+        final String supportingJson = serializeSourceList(mapper, r.getSupportingSources());
+        final String contradictingJson = serializeSourceList(mapper, r.getContradictingSources());
+        final String neutralJson = serializeSourceList(mapper, r.getNeutralSources());
+
+        // Serialize timeline
+        String tlTemp = "[]";
+        try {
+            ArrayNode tlArr = mapper.createArrayNode();
+            if (r.getTimeline() != null) {
+                for (FactCheckResult.TimelineEvent ev : r.getTimeline()) {
+                    ObjectNode en = mapper.createObjectNode();
+                    en.put("date", ev.date);
+                    en.put("title", ev.title);
+                    en.put("description", ev.description);
+                    en.put("source", ev.source != null ? ev.source : "");
+                    tlArr.add(en);
+                }
+            }
+            tlTemp = mapper.writeValueAsString(tlArr);
+        } catch (Exception ignored) {}
+        final String timelineJson = tlTemp;
+
         final String aiModel = r.getAiModel() != null ? r.getAiModel() : "Sondhan AI";
 
-        Task<Void> dbTask = new Task<>() {
-            @Override protected Void call() throws Exception {
-                DatabaseService.getInstance().saveSearch(
+        Task<Integer> dbTask = new Task<>() {
+            @Override protected Integer call() throws Exception {
+                return DatabaseService.getInstance().saveSearch(
                     uid, type, orig, r.getClaim(), r.getVerdict(),
                     r.getConfidence(), r.getExplanation(), sourcesJson,
-                    r.isPreloaded(), aiModel, r.getSourceUrl(), r.getCorrection()
+                    r.isPreloaded(), aiModel, r.getSourceUrl(), r.getCorrection(),
+                    supportingJson, contradictingJson, neutralJson, timelineJson
                 );
-                return null;
             }
         };
+        dbTask.setOnSucceeded(e -> Platform.runLater(() -> {
+            int id = dbTask.getValue();
+            if (id > 0) r.setVerificationId(id);
+        }));
         FactCheckerService.getExecutor().submit(dbTask);
+    }
+
+    private String serializeSourceList(ObjectMapper mapper, java.util.List<FactCheckResult.Source> sources) {
+        if (sources == null || sources.isEmpty()) return "[]";
+        try {
+            ArrayNode arr = mapper.createArrayNode();
+            for (FactCheckResult.Source s : sources) {
+                ObjectNode n = mapper.createObjectNode();
+                n.put("title", s.title); n.put("url", s.url);
+                n.put("type", s.type);   n.put("publisher", s.publisher != null ? s.publisher : "");
+                arr.add(n);
+            }
+            return mapper.writeValueAsString(arr);
+        } catch (Exception e) { return "[]"; }
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -774,40 +1307,43 @@ public class HomeController {
     // ═════════════════════════════════════════════════════════════════════════
 
     @FXML private void handleCopyReport() {
-        if (currentResult == null) return;
-        StringBuilder sb = new StringBuilder();
-        sb.append("=== SONDHAN FACT-CHECK REPORT ===\n\n");
-        sb.append("CLAIM: ").append(currentResult.getClaim()).append("\n");
-        sb.append("VERDICT: ").append(currentResult.getVerdict()).append("\n");
-        sb.append("CONFIDENCE: ").append(currentResult.getConfidence()).append("%\n");
-        sb.append("ENGINE: ").append(currentResult.getAiModel()).append("\n\n");
-        if (currentResult.getSourceUrl() != null && !currentResult.getSourceUrl().isBlank()) {
-            sb.append("SOURCE URL: ").append(currentResult.getSourceUrl()).append("\n\n");
-        }
-        if (currentResult.getCorrection() != null && !currentResult.getCorrection().isBlank()) {
-            sb.append("CORRECTION (WHAT IS TRUE):\n").append(currentResult.getCorrection()).append("\n\n");
-        }
-        sb.append("EXPLANATION:\n").append(currentResult.getExplanation()).append("\n\n");
-        sb.append("VERIFIED SOURCES:\n");
-        if (currentResult.getSources() != null) {
-            for (FactCheckResult.Source s : currentResult.getSources()) {
-                sb.append("• [").append(s.type).append("] ").append(s.title).append(" -> ").append(s.url).append("\n");
-            }
+        String report;
+        if (currentArticleResult != null) {
+            report = com.sondhan.service.ReportGeneratorService.generateArticleReport(
+                currentArticleResult, currentArticleResult.getSearchId()
+            );
+        } else if (currentResult != null) {
+            report = com.sondhan.service.ReportGeneratorService.generateMarkdownReport(
+                currentResult, currentResult.getVerificationId()
+            );
+        } else {
+            return;
         }
         Clipboard clipboard = Clipboard.getSystemClipboard();
         ClipboardContent content = new ClipboardContent();
-        content.putString(sb.toString());
+        content.putString(report);
         clipboard.setContent(content);
 
         Alert info = new Alert(Alert.AlertType.INFORMATION);
         info.setTitle("Report Copied");
         info.setHeaderText(null);
-        info.setContentText("Complete fact-check report copied to your macOS clipboard!");
+        info.setContentText("Complete fact-check report (with evidence balance & timeline) copied to your macOS clipboard!");
         info.showAndWait();
     }
 
     @FXML private void handleExportReportFile() {
-        if (currentResult == null) return;
+        String report;
+        if (currentArticleResult != null) {
+            report = com.sondhan.service.ReportGeneratorService.generateArticleReport(
+                currentArticleResult, currentArticleResult.getSearchId()
+            );
+        } else if (currentResult != null) {
+            report = com.sondhan.service.ReportGeneratorService.generateMarkdownReport(
+                currentResult, currentResult.getVerificationId()
+            );
+        } else {
+            return;
+        }
         FileChooser fc = new FileChooser();
         fc.setTitle("Save Fact-Check Report");
         fc.setInitialFileName("FactCheck_" + System.currentTimeMillis() + ".md");
@@ -818,32 +1354,7 @@ public class HomeController {
         File target = fc.showSaveDialog(Main.getPrimaryStage());
         if (target != null) {
             try {
-                StringBuilder sb = new StringBuilder();
-                sb.append("# SONDHAN FACT-CHECK REPORT\n\n");
-                sb.append("- **Claim:** ").append(currentResult.getClaim()).append("\n");
-                sb.append("- **Verdict:** ").append(currentResult.getVerdict()).append("\n");
-                sb.append("- **Confidence:** ").append(currentResult.getConfidence()).append("%\n");
-                sb.append("- **Verification Engine:** ").append(currentResult.getAiModel()).append("\n\n");
-                if (currentResult.getSourceUrl() != null && !currentResult.getSourceUrl().isBlank()) {
-                    sb.append("- **Source URL:** ").append(currentResult.getSourceUrl()).append("\n\n");
-                }
-                if (currentResult.getCorrection() != null && !currentResult.getCorrection().isBlank()) {
-                    sb.append("## 💡 What's Actually True\n").append(currentResult.getCorrection()).append("\n\n");
-                }
-                sb.append("## 📝 Factual Rationale\n").append(currentResult.getExplanation()).append("\n\n");
-                sb.append("## 📚 Verified Sources & Citations\n");
-                if (currentResult.getSources() != null) {
-                    for (FactCheckResult.Source s : currentResult.getSources()) {
-                        sb.append("- [").append(s.type.toUpperCase()).append("] ").append(s.title).append(" (").append(s.url).append(")\n");
-                    }
-                }
-                if (currentResult.getSummary() != null && !currentResult.getSummary().isEmpty()) {
-                    sb.append("\n## 📋 10-Point Executive Summary\n");
-                    for (String bullet : currentResult.getSummary()) {
-                        sb.append(bullet).append("\n");
-                    }
-                }
-                java.nio.file.Files.writeString(target.toPath(), sb.toString());
+                java.nio.file.Files.writeString(target.toPath(), report);
 
                 Alert info = new Alert(Alert.AlertType.INFORMATION);
                 info.setTitle("Report Saved");
@@ -852,6 +1363,38 @@ public class HomeController {
                 info.showAndWait();
             } catch (Exception ex) {
                 alert("Export Failed", "Error saving report file: " + ex.getMessage());
+            }
+        }
+    }
+
+    /** Feature 5: Export the current result as a structured JSON file. */
+    @FXML private void handleExportJson() {
+        String json;
+        if (currentArticleResult != null) {
+            json = com.sondhan.service.ReportGeneratorService.exportArticleJson(currentArticleResult);
+        } else if (currentResult != null) {
+            json = com.sondhan.service.ReportGeneratorService.exportJson(currentResult);
+        } else {
+            return;
+        }
+        FileChooser fc = new FileChooser();
+        fc.setTitle("Export JSON Data");
+        fc.setInitialFileName("FactCheck_" + System.currentTimeMillis() + ".json");
+        fc.getExtensionFilters().add(
+            new FileChooser.ExtensionFilter("JSON File (*.json)", "*.json")
+        );
+        File target = fc.showSaveDialog(Main.getPrimaryStage());
+        if (target != null) {
+            try {
+                java.nio.file.Files.writeString(target.toPath(), json);
+
+                Alert info = new Alert(Alert.AlertType.INFORMATION);
+                info.setTitle("JSON Exported");
+                info.setHeaderText(null);
+                info.setContentText("Structured JSON exported to:\n" + target.getAbsolutePath());
+                info.showAndWait();
+            } catch (Exception ex) {
+                alert("Export Failed", "Error exporting JSON: " + ex.getMessage());
             }
         }
     }
@@ -873,6 +1416,7 @@ public class HomeController {
     }
 
     @FXML private void handleResetView() {
+        currentArticleResult = null;
         hideResult();
     }
 
@@ -895,6 +1439,10 @@ public class HomeController {
     private void hideResult() {
         resultPanel.setVisible(false); resultPanel.setManaged(false);
         emptyState.setVisible(true);   emptyState.setManaged(true);
+        if (articleAnalysisCard != null) {
+            articleAnalysisCard.setVisible(false);
+            articleAnalysisCard.setManaged(false);
+        }
     }
 
     private void alert(String title, String msg) {

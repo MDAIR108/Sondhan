@@ -1,10 +1,13 @@
 package com.sondhan.model;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
  * Domain model for a single fact-check result.
  * Supports Text Statement, Image Analysis, and URL Check modes.
+ * Extended with evidence classification (Feature 1), claim timeline (Feature 2),
+ * article analysis support (Feature 3), and verification ID for reports (Feature 5).
  */
 public class FactCheckResult {
 
@@ -14,32 +17,82 @@ public class FactCheckResult {
         URL
     }
 
-    /** A verified/cited source reference. */
+    /** Classification of a source's stance on the claim. */
+    public enum EvidenceType {
+        SUPPORTING,
+        CONTRADICTING,
+        NEUTRAL
+    }
+
+    /** A verified/cited source reference with evidence classification. */
     public static class Source {
         public final String title;
         public final String url;
-        public final String type; // "newspaper", "book", "journal", "government", "website"
+        public final String type;       // "newspaper", "book", "journal", "government", "website"
+        public final String publisher;  // e.g. "Reuters", "WHO", "Nature"
+        public final EvidenceType evidenceType; // SUPPORTING | CONTRADICTING | NEUTRAL
 
         public Source(String title, String url) {
-            this(title, url, "website");
+            this(title, url, "website", null, EvidenceType.NEUTRAL);
         }
 
         public Source(String title, String url, String type) {
-            this.title = title;
-            this.url   = url;
-            this.type  = type;
+            this(title, url, type, null, EvidenceType.NEUTRAL);
+        }
+
+        public Source(String title, String url, String type, String publisher, EvidenceType evidenceType) {
+            this.title        = title;
+            this.url          = url;
+            this.type         = type;
+            this.publisher    = publisher != null ? publisher : "";
+            this.evidenceType = evidenceType != null ? evidenceType : EvidenceType.NEUTRAL;
+        }
+
+        /** Convenience: copy existing source with a given evidenceType. */
+        public Source withEvidence(EvidenceType et) {
+            return new Source(title, url, type, publisher, et);
         }
     }
 
+    /**
+     * A single chronological event related to the claim.
+     * Source field is nullable – never fabricate without a source.
+     */
+    public static class TimelineEvent {
+        public final String date;        // e.g. "2023-01" or "July 1969"
+        public final String title;       // Short event title
+        public final String description; // 1–2 sentence description
+        public final String source;      // Nullable – only set when verifiable
+
+        public TimelineEvent(String date, String title, String description, String source) {
+            this.date        = date;
+            this.title       = title;
+            this.description = description;
+            this.source      = source;
+        }
+    }
+
+    // ── Core fields ───────────────────────────────────────────────────────────
     private String       claim;
     private String       verdict;      // TRUE | FALSE | MISLEADING | UNVERIFIED | MODIFIED / OUT OF CONTEXT
     private String       explanation;
     private int          confidence;   // 0–100
-    private List<Source> sources;
+    private List<Source> sources;      // flat list (all sources – backward compat)
     private boolean      preloaded;
     private List<String> summary;
     private String       aiModel;      // "ChatGPT" | "Claude" | "Gemini" | "Preloaded"
     private String       inputType;    // "text" | "image" | "url"
+
+    // ── Evidence classification (Feature 1) ───────────────────────────────────
+    private List<Source> supportingSources    = new ArrayList<>();
+    private List<Source> contradictingSources = new ArrayList<>();
+    private List<Source> neutralSources       = new ArrayList<>();
+
+    // ── Claim timeline (Feature 2) ────────────────────────────────────────────
+    private List<TimelineEvent> timeline = new ArrayList<>();
+
+    // ── Report verification ID (Feature 5) ───────────────────────────────────
+    private int verificationId = -1;
 
     // ── URL & Forensics Extensions ────────────────────────────────────────────
     private String       sourceUrl;           // Scraped webpage URL
@@ -83,6 +136,28 @@ public class FactCheckResult {
         this.inputType = type != null ? type.name().toLowerCase() : "text";
     }
 
+    // ── Evidence Classification getters/setters ───────────────────────────────
+    public List<Source> getSupportingSources()              { return supportingSources; }
+    public void         setSupportingSources(List<Source> v)    { supportingSources = v != null ? v : new ArrayList<>(); }
+    public List<Source> getContradictingSources()           { return contradictingSources; }
+    public void         setContradictingSources(List<Source> v) { contradictingSources = v != null ? v : new ArrayList<>(); }
+    public List<Source> getNeutralSources()                 { return neutralSources; }
+    public void         setNeutralSources(List<Source> v)   { neutralSources = v != null ? v : new ArrayList<>(); }
+
+    /** Total count of classified sources across all three buckets. */
+    public int getTotalEvidenceCount() {
+        return supportingSources.size() + contradictingSources.size() + neutralSources.size();
+    }
+
+    // ── Timeline getters/setters ──────────────────────────────────────────────
+    public List<TimelineEvent> getTimeline()              { return timeline; }
+    public void                setTimeline(List<TimelineEvent> v) { timeline = v != null ? v : new ArrayList<>(); }
+
+    // ── Verification ID ───────────────────────────────────────────────────────
+    public int  getVerificationId()     { return verificationId; }
+    public void setVerificationId(int v){ verificationId = v; }
+
+    // ── URL / Forensics getters/setters ──────────────────────────────────────
     public String       getSourceUrl()       { return sourceUrl; }
     public void         setSourceUrl(String v) { sourceUrl = v; }
     public String       getExtractedText()   { return extractedText; }
@@ -108,5 +183,23 @@ public class FactCheckResult {
 
     public boolean      hasImageModification() {
         return originalImageUrl != null && !originalImageUrl.isBlank();
+    }
+
+    /**
+     * Convenience: populate the three evidence lists from the flat sources list
+     * based on each source's evidenceType. Called after parsing AI response.
+     */
+    public void classifySourcesFromFlat() {
+        supportingSources    = new ArrayList<>();
+        contradictingSources = new ArrayList<>();
+        neutralSources       = new ArrayList<>();
+        if (sources == null) return;
+        for (Source s : sources) {
+            switch (s.evidenceType) {
+                case SUPPORTING    -> supportingSources.add(s);
+                case CONTRADICTING -> contradictingSources.add(s);
+                default            -> neutralSources.add(s);
+            }
+        }
     }
 }

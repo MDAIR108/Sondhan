@@ -1,8 +1,10 @@
 package com.sondhan.controller;
 
 import com.sondhan.Main;
+import com.sondhan.model.FactCheckResult;
 import com.sondhan.model.SearchHistory;
 import com.sondhan.service.DatabaseService;
+import com.sondhan.service.FactCheckerService;
 import com.sondhan.service.SessionManager;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
@@ -14,6 +16,7 @@ import javafx.geometry.Pos;
 import javafx.scene.control.*;
 import javafx.scene.control.cell.PropertyValueFactory;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -21,8 +24,11 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.net.URI;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Map;
 
 /**
  * ──────────────────────────────────────────────────────────────────────────────
@@ -67,6 +73,14 @@ public class HistoryController {
     @FXML private Hyperlink detailSourceUrlLink;
     @FXML private VBox  detailCorrectionBox;
     @FXML private Label detailCorrectionLabel;
+
+    // ── Analytics Dashboard (Feature 4) ───────────────────────────────────────
+    @FXML private VBox  analyticsSection;
+    @FXML private HBox  verdictDistributionBox;
+    @FXML private HBox  verificationMethodsBox;
+    @FXML private HBox  sourceDistributionBox;
+    @FXML private VBox  recentActivityBox;
+    @FXML private ProgressIndicator analyticsSpinner;
 
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("dd MMM yyyy, HH:mm");
     private final ObservableList<SearchHistory> masterData = FXCollections.observableArrayList();
@@ -153,6 +167,7 @@ public class HistoryController {
         });
 
         // 7. Load Data Asynchronously (Topic 2: Multithreading)
+        // Feature 4: Analytics are loaded AFTER history data arrives (see loadHistoryData callback)
         loadHistoryData();
     }
 
@@ -203,6 +218,8 @@ public class HistoryController {
             masterData.setAll(results);
             updateStats(results);
             applyFilters();
+            // Feature 4: Now that masterData is populated, load analytics
+            loadAnalytics();
         }));
 
         loadTask.setOnFailed(e -> Platform.runLater(() -> {
@@ -232,6 +249,269 @@ public class HistoryController {
         trueCountLabel.setText(String.valueOf(trueCount));
         falseCountLabel.setText(String.valueOf(falseCount));
         avgConfLabel.setText(avgConf + "%");
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  Feature 4: Verification Dashboard Analytics
+    // ═════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Loads all analytics data on a background thread and updates the dashboard UI.
+     * Runs aggregate SQL queries + JSON parsing without blocking the UI thread.
+     */
+    private void loadAnalytics() {
+        if (SessionManager.isGuest()) {
+            analyticsSection.setVisible(false);
+            analyticsSection.setManaged(false);
+            return;
+        }
+
+        analyticsSpinner.setVisible(true);
+        int userId = SessionManager.getCurrentUser().getId();
+
+        Task<Void> analyticsTask = new Task<>() {
+            @Override protected Void call() throws Exception {
+                // 1. Verdict distribution (SQL aggregate)
+                List<String[]> verdictDist = DatabaseService.getInstance().getVerdictDistribution(userId);
+
+                // 2. Verification methods (SQL aggregate)
+                List<String[]> methodDist = DatabaseService.getInstance().getMethodDistribution(userId);
+
+                // 3. Source distribution (JSON parse per row – background thread)
+                List<String[]> sourceDist = DatabaseService.getInstance().getSourceDistribution(userId);
+
+                // 4. Recent activity (last 5 from already-loaded history)
+                List<SearchHistory> recent = masterData.size() > 5
+                    ? masterData.subList(0, 5) : masterData;
+
+                Platform.runLater(() -> {
+                    buildVerdictDistributionChart(verdictDist);
+                    buildVerificationMethodsDisplay(methodDist);
+                    buildSourceDistributionDisplay(sourceDist);
+                    buildRecentActivityList(recent);
+                    analyticsSpinner.setVisible(false);
+                });
+                return null;
+            }
+        };
+
+        analyticsTask.setOnFailed(e -> Platform.runLater(() -> {
+            analyticsSpinner.setVisible(false);
+            System.err.println("[Analytics Error] " + analyticsTask.getException().getMessage());
+        }));
+
+        FactCheckerService.getExecutor().submit(analyticsTask);
+    }
+
+    /**
+     * Builds the VERDICT DISTRIBUTION horizontal bar chart.
+     */
+    private void buildVerdictDistributionChart(List<String[]> verdictDist) {
+        verdictDistributionBox.getChildren().clear();
+        if (verdictDist.isEmpty()) {
+            Label lbl = new Label("No data yet");
+            lbl.setStyle("-fx-text-fill: #64748b; -fx-font-size: 11px;");
+            verdictDistributionBox.getChildren().add(lbl);
+            return;
+        }
+
+        int maxCount = verdictDist.stream().mapToInt(a -> Integer.parseInt(a[1])).max().orElse(1);
+
+        for (String[] entry : verdictDist) {
+            String verdict = entry[0];
+            int count = Integer.parseInt(entry[1]);
+
+            HBox row = new HBox(8);
+            row.setAlignment(Pos.CENTER_LEFT);
+
+            Label nameLabel = new Label(verdict);
+            nameLabel.setStyle("-fx-text-fill: #CBD5E1; -fx-font-size: 11px; -fx-min-width: 120px;");
+            nameLabel.setWrapText(true);
+
+            // Bar track
+            HBox trackBg = new HBox();
+            trackBg.setStyle("-fx-background-color: #1E293B; -fx-background-radius: 4; -fx-min-height: 12;");
+            HBox.setHgrow(trackBg, Priority.ALWAYS);
+
+            double pct = (double) count / maxCount;
+            HBox fill = new HBox();
+            fill.setStyle("-fx-background-color: " + getVerdictBarColor(verdict) + "; -fx-background-radius: 4; -fx-min-height: 12;");
+            fill.setPrefWidth(200 * pct);
+            trackBg.getChildren().add(fill);
+
+            Label countLabel = new Label(String.valueOf(count));
+            countLabel.setStyle("-fx-text-fill: #64748B; -fx-font-size: 11px; -fx-min-width: 25px;");
+
+            row.getChildren().addAll(nameLabel, trackBg, countLabel);
+            verdictDistributionBox.getChildren().add(row);
+        }
+    }
+
+    /**
+     * Builds the VERIFICATION METHODS display (Text/Image/URL counts).
+     */
+    private void buildVerificationMethodsDisplay(List<String[]> methodDist) {
+        verificationMethodsBox.getChildren().clear();
+        if (methodDist.isEmpty()) {
+            Label lbl = new Label("No data yet");
+            lbl.setStyle("-fx-text-fill: #64748b; -fx-font-size: 11px;");
+            verificationMethodsBox.getChildren().add(lbl);
+            return;
+        }
+
+        for (String[] entry : methodDist) {
+            String method = entry[0];
+            int count = Integer.parseInt(entry[1]);
+
+            String icon = switch (method != null ? method.toLowerCase() : "") {
+                case "image" -> "🖼️";
+                case "url"   -> "🔗";
+                default      -> "💬";
+            };
+            String label = switch (method != null ? method.toLowerCase() : "") {
+                case "image" -> "Image";
+                case "url"   -> "URL";
+                default      -> "Text";
+            };
+
+            VBox methodBox = new VBox(4);
+            methodBox.setAlignment(Pos.CENTER);
+            methodBox.setStyle("-fx-background-color: #0f1c32; -fx-background-radius: 8; -fx-padding: 10 14; -fx-min-width: 80;");
+
+            Label iconLabel = new Label(icon);
+            iconLabel.setStyle("-fx-font-size: 18px;");
+            Label countLabel = new Label(String.valueOf(count));
+            countLabel.setStyle("-fx-text-fill: #38bdf8; -fx-font-size: 16px; -fx-font-weight: 800;");
+            Label nameLabel = new Label(label);
+            nameLabel.setStyle("-fx-text-fill: #94a3b8; -fx-font-size: 10px;");
+
+            methodBox.getChildren().addAll(iconLabel, countLabel, nameLabel);
+            verificationMethodsBox.getChildren().add(methodBox);
+        }
+    }
+
+    /**
+     * Builds the SOURCE DISTRIBUTION display (Newspaper/Book/Journal/Government counts).
+     */
+    private void buildSourceDistributionDisplay(List<String[]> sourceDist) {
+        sourceDistributionBox.getChildren().clear();
+        if (sourceDist.isEmpty()) {
+            Label lbl = new Label("No data yet");
+            lbl.setStyle("-fx-text-fill: #64748b; -fx-font-size: 11px;");
+            sourceDistributionBox.getChildren().add(lbl);
+            return;
+        }
+
+        for (String[] entry : sourceDist) {
+            String type = entry[0];
+            int count = Integer.parseInt(entry[1]);
+
+            String icon = switch (type != null ? type.toLowerCase() : "") {
+                case "newspaper"  -> "📰";
+                case "book"       -> "📚";
+                case "journal"    -> "🔬";
+                case "government" -> "🏛️";
+                default           -> "🌐";
+            };
+
+            HBox row = new HBox(8);
+            row.setAlignment(Pos.CENTER_LEFT);
+
+            Label iconLabel = new Label(icon);
+            iconLabel.setStyle("-fx-font-size: 14px;");
+
+            Label nameLabel = new Label(capitalize(type));
+            nameLabel.setStyle("-fx-text-fill: #CBD5E1; -fx-font-size: 11px; -fx-min-width: 100px;");
+
+            Label countLabel = new Label(String.valueOf(count));
+            countLabel.setStyle("-fx-text-fill: #34d399; -fx-font-size: 12px; -fx-font-weight: 700;");
+
+            row.getChildren().addAll(iconLabel, nameLabel, countLabel);
+            sourceDistributionBox.getChildren().add(row);
+        }
+    }
+
+    /**
+     * Builds the RECENT ACTIVITY list (last 5 searches with relative time).
+     */
+    private void buildRecentActivityList(List<SearchHistory> recent) {
+        recentActivityBox.getChildren().clear();
+        if (recent.isEmpty()) {
+            Label lbl = new Label("No recent activity");
+            lbl.setStyle("-fx-text-fill: #64748b; -fx-font-size: 11px;");
+            recentActivityBox.getChildren().add(lbl);
+            return;
+        }
+
+        for (SearchHistory h : recent) {
+            HBox row = new HBox(10);
+            row.setAlignment(Pos.CENTER_LEFT);
+            row.setStyle("-fx-cursor: hand; -fx-padding: 4 0;");
+            row.setUserData(h.getId()); // Mark as clickable
+
+            // Verdict icon
+            String v = h.getVerdict() != null ? h.getVerdict().toUpperCase() : "";
+            Label iconLabel = new Label(switch (v) {
+                case "TRUE"                   -> "✅";
+                case "FALSE"                  -> "✕";
+                case "MISLEADING"             -> "⚠";
+                case "MODIFIED / OUT OF CONTEXT" -> "⚡";
+                default                        -> "?";
+            });
+            iconLabel.setStyle("-fx-font-size: 13px;");
+
+            // Claim snippet
+            String claimSnippet = h.getClaim() != null ? h.getClaim() : "";
+            if (claimSnippet.length() > 50) claimSnippet = claimSnippet.substring(0, 50) + "…";
+            Label claimLabel = new Label(claimSnippet);
+            claimLabel.setStyle("-fx-text-fill: #CBD5E1; -fx-font-size: 12px;");
+            HBox.setHgrow(claimLabel, Priority.ALWAYS);
+
+            // Relative time
+            Label timeLabel = new Label(getRelativeTime(h.getCreatedAt()));
+            timeLabel.setStyle("-fx-text-fill: #64748B; -fx-font-size: 11px;");
+
+            row.getChildren().addAll(iconLabel, claimLabel, timeLabel);
+
+            // Click to open detail
+            row.setOnMouseClicked(ev -> {
+                ev.consume();
+                // Select in table and show detail
+                historyTable.getSelectionModel().select(h);
+                showDetail(h);
+            });
+
+            recentActivityBox.getChildren().add(row);
+        }
+    }
+
+    private String getVerdictBarColor(String verdict) {
+        if (verdict == null) return "#475569";
+        return switch (verdict.toUpperCase()) {
+            case "TRUE"                   -> "#10B981";
+            case "FALSE"                  -> "#EF4444";
+            case "MISLEADING"             -> "#F59E0B";
+            case "MODIFIED / OUT OF CONTEXT" -> "#EA580C";
+            default                        -> "#475569";
+        };
+    }
+
+    private String capitalize(String s) {
+        if (s == null || s.isEmpty()) return s;
+        return Character.toUpperCase(s.charAt(0)) + s.substring(1);
+    }
+
+    private String getRelativeTime(LocalDateTime time) {
+        if (time == null) return "";
+        LocalDateTime now = LocalDateTime.now();
+        long minutes = ChronoUnit.MINUTES.between(time, now);
+        if (minutes < 1) return "just now";
+        if (minutes < 60) return minutes + " min ago";
+        long hours = ChronoUnit.HOURS.between(time, now);
+        if (hours < 24) return hours + " hr ago";
+        long days = ChronoUnit.DAYS.between(time, now);
+        if (days < 7) return days + " day" + (days > 1 ? "s" : "") + " ago";
+        return time.format(DateTimeFormatter.ofPattern("dd MMM"));
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -380,6 +660,7 @@ public class HistoryController {
                     updateStats(masterData);
                     detailPanel.setVisible(false);
                     detailPanel.setManaged(false);
+                    loadAnalytics();
                 }));
                 new Thread(delTask, "sondhan-delete-thread").start();
             }
@@ -474,6 +755,7 @@ public class HistoryController {
                     updateStats(masterData);
                     detailPanel.setVisible(false);
                     detailPanel.setManaged(false);
+                    loadAnalytics();
                 }));
                 new Thread(clearTask, "sondhan-clear-thread").start();
             }
@@ -482,6 +764,7 @@ public class HistoryController {
 
     @FXML private void handleRefresh() {
         loadHistoryData();
+        // Analytics are reloaded in loadHistoryData's onSucceeded callback
     }
 
     @FXML private void handleBack() {

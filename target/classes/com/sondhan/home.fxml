@@ -332,10 +332,48 @@
                             <VBox fx:id="sourcesBox" spacing="10.0"/>
                         </VBox>
 
+                        <!-- Article Analysis Result (Feature 3: Multi-Claim URL Verification) -->
+                        <VBox fx:id="articleAnalysisCard" spacing="14.0" visible="false" managed="false">
+
+                            <!-- Article Info Card -->
+                            <VBox fx:id="articleInfoCard" styleClass="panel" spacing="10.0">
+                                <padding><Insets top="16" right="20" bottom="16" left="20"/></padding>
+                                <HBox alignment="CENTER_LEFT" spacing="8.0">
+                                    <Label text="📰 ARTICLE" styleClass="section-label"/>
+                                    <Region HBox.hgrow="ALWAYS"/>
+                                    <Label fx:id="articlePublisherLabel" text="Publisher" styleClass="meta-pill"/>
+                                    <Label fx:id="articleDateLabel" text="Date" styleClass="meta-pill"/>
+                                </HBox>
+                                <Label fx:id="articleTitleLabel" styleClass="claim-text" wrapText="true"/>
+                            </VBox>
+
+                            <!-- Detected Claims -->
+                            <VBox styleClass="sources-container" spacing="10.0">
+                                <HBox alignment="CENTER_LEFT" spacing="8.0">
+                                    <Label text="🔍 DETECTED CLAIMS" styleClass="section-label"/>
+                                    <Region HBox.hgrow="ALWAYS"/>
+                                    <Label text="Click a claim to expand details" styleClass="text-muted"/>
+                                </HBox>
+                                <VBox fx:id="detectedClaimsBox" spacing="8.0"/>
+                            </VBox>
+
+                            <!-- Article Assessment -->
+                            <VBox fx:id="articleAssessmentCard" styleClass="panel" spacing="10.0">
+                                <padding><Insets top="16" right="20" bottom="16" left="20"/></padding>
+                                <HBox alignment="CENTER_LEFT" spacing="8.0">
+                                    <Label text="📊 ARTICLE ASSESSMENT" styleClass="section-label"/>
+                                </HBox>
+                                <Label fx:id="articleOverallVerdictLabel" styleClass="verdict-true" style="-fx-font-size:15px;"/>
+                                <Label fx:id="articleOverallSummaryLabel" wrapText="true" styleClass="explanation-text"/>
+                                <HBox fx:id="articleBreakdownBox" spacing="16.0"/>
+                            </VBox>
+                        </VBox>
+
                         <!-- Action Bar -->
                         <HBox alignment="CENTER_RIGHT" spacing="12.0">
-                            <Button text="Copy Report" styleClass="btn-secondary" onAction="#handleCopyReport"/>
-                            <Button text="Save Report (.md)" styleClass="btn-secondary" onAction="#handleExportReportFile"/>
+                            <Button text="📋 Copy Report" styleClass="btn-secondary" onAction="#handleCopyReport"/>
+                            <Button text="💾 Save Report (.md)" styleClass="btn-secondary" onAction="#handleExportReportFile"/>
+                            <Button text="📤 Export JSON" styleClass="btn-secondary" onAction="#handleExportJson"/>
                             <Button text="Verify Another" styleClass="btn-primary" onAction="#handleResetView"/>
                         </HBox>
 

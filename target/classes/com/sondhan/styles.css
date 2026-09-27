@@ -320,6 +320,43 @@
     -fx-background-color: transparent;
 }
 
+/* ── CRITICAL FIX: Global ComboBox popup selectors ──────────────────────────
+   JavaFX ComboBox popups render in a SEPARATE popup window with its own
+   scene graph. The popup does NOT inherit the main scene's stylesheet
+   context, so .model-combo .combo-popup selectors may not match.
+   These global selectors ensure the popup is styled regardless. */
+
+.combo-box-popup .list-view {
+    -fx-background-color: #0c182c;
+    -fx-border-color: rgba(52, 211, 153, 0.4);
+    -fx-border-radius: 8;
+    -fx-background-radius: 8;
+}
+
+.combo-box-popup .list-cell {
+    -fx-text-fill: #f8fafc;
+    -fx-background-color: #0c182c;
+    -fx-font-size: 12.5px;
+    -fx-font-weight: 700;
+    -fx-padding: 8 14;
+}
+
+.combo-box-popup .list-cell:filled:hover {
+    -fx-background-color: #172c4e;
+    -fx-text-fill: #34d399;
+}
+
+.combo-box-popup .list-cell:filled:selected {
+    -fx-background-color: rgba(52, 211, 153, 0.28);
+    -fx-text-fill: #34d399;
+}
+
+.combo-box-popup .list-cell:filled:selected:hover {
+    -fx-background-color: rgba(52, 211, 153, 0.28);
+    -fx-text-fill: #34d399;
+}
+
+/* Also keep the .model-combo specific selectors for redundancy */
 .model-combo .combo-popup > .list-view {
     -fx-background-color: #0c182c;
     -fx-border-color: rgba(52, 211, 153, 0.4);
@@ -856,6 +893,53 @@
     -fx-font-weight: 700;
 }
 
+/* ── Analytics Dashboard (Feature 4) ─────────────────────────────────────── */
+.analytics-section {
+    -fx-background-color: #0b1526;
+    -fx-background-radius: 12;
+    -fx-border-color: rgba(56, 189, 248, 0.16);
+    -fx-border-radius: 12;
+    -fx-border-width: 1;
+}
+
+/* ── Article Analysis Card (Feature 3) ──────────────────────────────────── */
+.article-info-card {
+    -fx-background-color: #0b1526;
+    -fx-background-radius: 12;
+    -fx-border-color: rgba(56, 189, 248, 0.16);
+    -fx-border-radius: 12;
+    -fx-border-width: 1;
+}
+
+.claim-card-expandable {
+    -fx-background-color: #0b1526;
+    -fx-background-radius: 9;
+    -fx-border-color: rgba(56, 189, 248, 0.2);
+    -fx-border-radius: 9;
+    -fx-padding: 11 15;
+    -fx-cursor: hand;
+}
+
+.claim-card-expandable:hover {
+    -fx-border-color: #34d399;
+    -fx-background-color: #111f38;
+}
+
+.article-assessment-card {
+    -fx-background-color: #0b1526;
+    -fx-background-radius: 12;
+    -fx-border-color: rgba(52, 211, 153, 0.25);
+    -fx-border-radius: 12;
+    -fx-border-width: 1;
+}
+
+.breakdown-pill {
+    -fx-font-size: 11px;
+    -fx-font-weight: 700;
+    -fx-padding: 4 10;
+    -fx-background-radius: 8;
+}
+
 /* ════════════════════════════════════════════════════════════════════════════
    LIGHT MODE OVERRIDES (Ice Blue & Mint Green)
    ════════════════════════════════════════════════════════════════════════════ */
@@ -976,4 +1060,25 @@
 
 .light-mode .model-combo .cell {
     -fx-text-fill: #0f172a;
+}
+
+.light-mode .analytics-section {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #cbd5e1;
+}
+
+.light-mode .article-info-card,
+.light-mode .article-assessment-card {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #cbd5e1;
+}
+
+.light-mode .claim-card-expandable {
+    -fx-background-color: #f8fafc;
+    -fx-border-color: #e2e8f0;
+}
+
+.light-mode .claim-card-expandable:hover {
+    -fx-background-color: #f1f5f9;
+    -fx-border-color: #10b981;
 }

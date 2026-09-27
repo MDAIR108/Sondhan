@@ -84,10 +84,12 @@ public class FactCheckerService {
         "You are Sondhani, an expert academic fact-checking AI. " +
         "Verify every claim objectively by cross-referencing newspaper archives, " +
         "historical books, and peer-reviewed journals. " +
-        "CRITICAL REQUIREMENT: For every citation in 'sources', you MUST provide an EXACT, specific article/document URL directly to the page that proves or disproves the point. " +
+        "CRITICAL REQUIREMENT: For every citation in source arrays, you MUST provide an EXACT, specific article/document URL directly to the page that proves or disproves the point. " +
         "NEVER return a generic root homepage like https://reuters.com or https://who.int. If citing WHO, return the exact Q&A page; if citing a study, return the exact DOI/journal URL; if citing a newspaper, return the exact article link. " +
         "If the verdict is FALSE, MISLEADING, or MODIFIED, provide a concise 'correction' field explaining what is actually true. " +
-        "Categorize each source as: 'newspaper', 'book', 'journal', or 'government'. " +
+        "Classify each source into exactly ONE of three arrays: supporting_evidence (corroborates claim), contradicting_evidence (refutes claim), neutral_evidence (background context). " +
+        "For the timeline array: ONLY include entries with a verifiable source. If you cannot cite a source, omit that entry entirely rather than fabricating one. " +
+        "Categorize each source type as: 'newspaper', 'book', 'journal', or 'government'. " +
         "Always respond ONLY with valid raw JSON (no markdown fences, no explanatory text).";
 
     private static final String SCHEMA =
@@ -96,7 +98,10 @@ public class FactCheckerService {
         "\"confidence\":<integer between 50 and 99>," +
         "\"explanation\":\"<Clear 2-3 sentence factual rationale>\"," +
         "\"correction\":\"<Concise factual explanation of what is actually true if verdict is FALSE or MISLEADING, else empty string>\"," +
-        "\"sources\":[{\"title\":\"<source title>\",\"url\":\"<source URL>\",\"type\":\"newspaper|book|journal|government\"}]," +
+        "\"supporting_evidence\":[{\"title\":\"<source title>\",\"publisher\":\"<publisher name>\",\"url\":\"<source URL>\",\"type\":\"newspaper|book|journal|government\"}]," +
+        "\"contradicting_evidence\":[{\"title\":\"<source title>\",\"publisher\":\"<publisher name>\",\"url\":\"<source URL>\",\"type\":\"newspaper|book|journal|government\"}]," +
+        "\"neutral_evidence\":[{\"title\":\"<source title>\",\"publisher\":\"<publisher name>\",\"url\":\"<source URL>\",\"type\":\"newspaper|book|journal|government\"}]," +
+        "\"timeline\":[{\"date\":\"<YYYY-MM or descriptive date>\",\"title\":\"<short event title>\",\"description\":\"<1-2 sentence description>\",\"source\":\"<source name or URL, or null if not verifiable>\"}]," +
         "\"claim\":\"<restated claim>\"" +
         "}";
 
@@ -364,10 +369,19 @@ public class FactCheckerService {
                 "This status is constitutionally established under Article 5 of the Constitution of Bangladesh. " +
                 "Historical records and government archives confirm unbroken administrative continuity as the nation's capital."
             );
-            r.setSources(List.of(
-                new FactCheckResult.Source("Laws of Bangladesh – Article 5: The Capital of the Republic is Dhaka", "https://bdlaws.minlaw.gov.bd/act-367/section-24553.html#:~:text=The%20capital%20of%20the%20Republic%20is%20Dhaka", "government"),
-                new FactCheckResult.Source("Encyclopedia Britannica – Dhaka Historical & Constitutional Capital", "https://www.britannica.com/place/Dhaka#:~:text=Dhaka%2C%20capital%20of%20Bangladesh", "book"),
-                new FactCheckResult.Source("The Daily Star – The Making of a Capital (1971 Independence Archive)", "https://www.thedailystar.net/in-focus/news/the-making-capital-1674487", "newspaper")
+            List<FactCheckResult.Source> sup = List.of(
+                new FactCheckResult.Source("Laws of Bangladesh – Article 5: The Capital of the Republic is Dhaka", "https://bdlaws.minlaw.gov.bd/act-367/section-24553.html#:~:text=The%20capital%20of%20the%20Republic%20is%20Dhaka", "government", "Ministry of Law", FactCheckResult.EvidenceType.SUPPORTING),
+                new FactCheckResult.Source("Encyclopedia Britannica – Dhaka Historical & Constitutional Capital", "https://www.britannica.com/place/Dhaka#:~:text=Dhaka%2C%20capital%20of%20Bangladesh", "book", "Britannica", FactCheckResult.EvidenceType.SUPPORTING),
+                new FactCheckResult.Source("The Daily Star – The Making of a Capital (1971 Independence Archive)", "https://www.thedailystar.net/in-focus/news/the-making-capital-1674487", "newspaper", "The Daily Star", FactCheckResult.EvidenceType.SUPPORTING)
+            );
+            r.setSupportingSources(sup);
+            r.setContradictingSources(List.of());
+            r.setNeutralSources(List.of());
+            List<FactCheckResult.Source> all = new ArrayList<>(sup);
+            r.setSources(all);
+            r.setTimeline(List.of(
+                new FactCheckResult.TimelineEvent("1971-03", "Declaration of Independence", "Bangladesh declares independence from Pakistan, establishing its own government.", "Britannica – Bangladesh Independence"),
+                new FactCheckResult.TimelineEvent("1971-12", "Liberation War Victory", "Bangladesh achieves full independence on December 16, 1971; Dhaka confirmed as the national capital.", "Laws of Bangladesh – Article 5")
             ));
             return r;
         }
@@ -381,14 +395,26 @@ public class FactCheckerService {
                 "Extensive independent investigations by the World Health Organization (WHO), FDA, and ICNIRP found zero empirical link between 5G electromagnetic exposure and cancer."
             );
             r.setCorrection("5G non-ionizing radiofrequencies cannot damage cellular DNA; extensive evaluations by the WHO, FDA, and ICNIRP confirm no causal health risks.");
-            r.setSources(List.of(
-                new FactCheckResult.Source("World Health Organization (WHO) – Radiation: 5G Mobile Networks and Health", "https://www.who.int/news-room/questions-and-answers/item/radiation-5g-mobile-networks-and-health#:~:text=no%20adverse%20health%20effect%20has%20been%20causally%20linked", "government"),
-                new FactCheckResult.Source("U.S. FDA – Scientific Evidence on Cell Phone and 5G Safety", "https://www.fda.gov/radiation-emitting-products/cell-phones/scientific-evidence-cell-phone-safety#:~:text=The%20scientific%20evidence%20does%20not%20show%20a%20danger", "government"),
-                new FactCheckResult.Source("Nature: Scientific Reports – Radiofrequency Biological Safety Assessment", "https://www.nature.com/articles/s41598-021-86673-4", "journal"),
-                new FactCheckResult.Source("Reuters Fact Check – 5G technology has no correlation with illness", "https://www.reuters.com/article/world/fact-check-5g-technology-does-not-cause-cancer-idUSKBN22V27E/", "newspaper")
+            List<FactCheckResult.Source> contra = List.of(
+                new FactCheckResult.Source("World Health Organization (WHO) – Radiation: 5G Mobile Networks and Health", "https://www.who.int/news-room/questions-and-answers/item/radiation-5g-mobile-networks-and-health#:~:text=no%20adverse%20health%20effect%20has%20been%20causally%20linked", "government", "WHO", FactCheckResult.EvidenceType.CONTRADICTING),
+                new FactCheckResult.Source("U.S. FDA – Scientific Evidence on Cell Phone and 5G Safety", "https://www.fda.gov/radiation-emitting-products/cell-phones/scientific-evidence-cell-phone-safety#:~:text=The%20scientific%20evidence%20does%20not%20show%20a%20danger", "government", "U.S. FDA", FactCheckResult.EvidenceType.CONTRADICTING)
+            );
+            List<FactCheckResult.Source> neut = List.of(
+                new FactCheckResult.Source("Nature: Scientific Reports – Radiofrequency Biological Safety Assessment", "https://www.nature.com/articles/s41598-021-86673-4", "journal", "Nature", FactCheckResult.EvidenceType.NEUTRAL),
+                new FactCheckResult.Source("Reuters Fact Check – 5G technology has no correlation with illness", "https://www.reuters.com/article/world/fact-check-5g-technology-does-not-cause-cancer-idUSKBN22V27E/", "newspaper", "Reuters", FactCheckResult.EvidenceType.NEUTRAL)
+            );
+            r.setSupportingSources(List.of());
+            r.setContradictingSources(contra);
+            r.setNeutralSources(neut);
+            List<FactCheckResult.Source> all = new ArrayList<>(); all.addAll(contra); all.addAll(neut);
+            r.setSources(all);
+            r.setTimeline(List.of(
+                new FactCheckResult.TimelineEvent("2019", "5G Networks Launched", "First commercial 5G networks deployed globally. No health incidents linked to rollout.", "WHO – 5G Mobile Networks and Health"),
+                new FactCheckResult.TimelineEvent("2020", "COVID-19 Conspiracy Surge", "Unsubstantiated claims linking 5G towers to COVID-19 spread widely on social media; multiple fact-checks debunked the link.", "Reuters Fact Check – 5G Does Not Cause COVID-19")
             ));
             return r;
         }
+
 
         // ── 3. Dr. Muhammad Yunus Case ───────────────────────────────────────
         if (lower.contains("yunus") || (lower.contains("nurjahan") && lower.contains("case"))) {
@@ -689,6 +715,99 @@ public class FactCheckerService {
     }
 
     // ═════════════════════════════════════════════════════════════════════════
+    //  Feature 3: Article Claim Detection (URL Multi-Claim Analysis)
+    // ═════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Sends article text to the AI and requests 2–6 independently verifiable claims.
+     * Returns a list of claim strings. Uses offline heuristic fallback if no AI key.
+     * Discipline: never fabricate – only return claims that appear in the text.
+     */
+    public static List<String> detectClaimsFromArticle(String model, String articleText) throws Exception {
+        if (articleText == null || articleText.isBlank()) return List.of();
+
+        String truncated = articleText.length() > 4000 ? articleText.substring(0, 4000) : articleText;
+
+        String prompt = "Identify between 2 and 6 discrete, independently verifiable factual claims from the following article text.\n" +
+            "Return ONLY a valid JSON array of strings, each string being one claim. " +
+            "Only include claims that appear explicitly in the text and can be checked against public sources.\n" +
+            "Do NOT include opinions, speculation, or editorial commentary.\n" +
+            "Example output: [\"Claim one.\", \"Claim two.\", \"Claim three.\"]\n\n" +
+            "Article text:\n" + truncated;
+
+        boolean useGemini  = model != null && (model.contains("Gemini") || "Auto / Smart Engine".equalsIgnoreCase(model) && SessionManager.hasGeminiKey());
+        boolean useChatGPT = model != null && model.contains("ChatGPT");
+        boolean useClaude  = model != null && model.contains("Claude");
+
+        if (useGemini && SessionManager.hasGeminiKey()) {
+            try {
+                String raw = postGemini(SessionManager.getGeminiKey(), buildGeminiTextBody(prompt));
+                return parseClaimsArray(extractGeminiSummary(raw));
+            } catch (Exception ex) {
+                System.err.println("[Article Claims Gemini] " + ex.getMessage());
+            }
+        }
+        if (useChatGPT && SessionManager.hasOpenAiKey()) {
+            try {
+                String raw = postOpenAI(SessionManager.getOpenAiKey(), buildOpenAITextBody(prompt));
+                return parseClaimsArray(extractOpenAISummary(raw));
+            } catch (Exception ex) {
+                System.err.println("[Article Claims ChatGPT] " + ex.getMessage());
+            }
+        }
+        if (useClaude && SessionManager.hasClaudeKey()) {
+            try {
+                String raw = postClaude(SessionManager.getClaudeKey(), buildClaudeTextBody(prompt));
+                return parseClaimsArray(extractClaudeSummary(raw));
+            } catch (Exception ex) {
+                System.err.println("[Article Claims Claude] " + ex.getMessage());
+            }
+        }
+
+        // Offline fallback: split article into sentences, take up to 4 assertive ones
+        return extractSentencesOffline(truncated, 4);
+    }
+
+    /** Parses a JSON array of strings from the AI response. */
+    private static List<String> parseClaimsArray(String text) {
+        if (text == null || text.isBlank()) return List.of();
+        try {
+            String cleaned = text.trim();
+            int s = cleaned.indexOf('[');
+            int e = cleaned.lastIndexOf(']');
+            if (s >= 0 && e > s) cleaned = cleaned.substring(s, e + 1);
+            JsonNode arr = MAPPER.readTree(cleaned);
+            List<String> claims = new ArrayList<>();
+            if (arr.isArray()) {
+                for (JsonNode n : arr) {
+                    String c = n.asText("").trim();
+                    if (!c.isEmpty()) claims.add(c);
+                }
+            }
+            return claims.isEmpty() ? List.of() : claims;
+        } catch (Exception ex) {
+            return List.of();
+        }
+    }
+
+    /** Extracts up to maxClaims declarative sentences from plain text (offline fallback). */
+    private static List<String> extractSentencesOffline(String text, int maxClaims) {
+        String[] sentences = text.split("(?<=[.!?])\\s+");
+        List<String> result = new ArrayList<>();
+        for (String sentence : sentences) {
+            String s = sentence.trim();
+            if (s.length() > 30 && s.length() < 300
+                    && !s.startsWith("\"") && !s.startsWith("(")
+                    && !s.toLowerCase().startsWith("according to our")
+                    && !s.toLowerCase().startsWith("click here")) {
+                result.add(s);
+                if (result.size() >= maxClaims) break;
+            }
+        }
+        return result;
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
     //  Shared Jackson ObjectMapper (Topic 4: JSON Processing)
     // ═════════════════════════════════════════════════════════════════════════
 
@@ -974,21 +1093,55 @@ public class FactCheckerService {
             }
             r.setCorrection(corr);
 
-            List<FactCheckResult.Source> sources = new ArrayList<>();
-            JsonNode arr = j.path("sources");
-            if (arr.isArray()) {
-                for (JsonNode src : arr) {
-                    sources.add(new FactCheckResult.Source(
-                        src.path("title").asText("Source"),
-                        src.path("url").asText("#"),
-                        src.path("type").asText("newspaper")
-                    ));
+            // ── Feature 1: Parse typed evidence arrays ─────────────────────
+            List<FactCheckResult.Source> supporting    = parseSourceArray(j, "supporting_evidence",    FactCheckResult.EvidenceType.SUPPORTING);
+            List<FactCheckResult.Source> contradicting = parseSourceArray(j, "contradicting_evidence", FactCheckResult.EvidenceType.CONTRADICTING);
+            List<FactCheckResult.Source> neutral       = parseSourceArray(j, "neutral_evidence",       FactCheckResult.EvidenceType.NEUTRAL);
+            r.setSupportingSources(supporting);
+            r.setContradictingSources(contradicting);
+            r.setNeutralSources(neutral);
+
+            // Flat sources list: merge all three; fallback to legacy "sources" key
+            List<FactCheckResult.Source> allSources = new ArrayList<>();
+            allSources.addAll(supporting);
+            allSources.addAll(contradicting);
+            allSources.addAll(neutral);
+            if (allSources.isEmpty()) {
+                JsonNode legacyArr = j.path("sources");
+                if (legacyArr.isArray()) {
+                    for (JsonNode src : legacyArr) {
+                        allSources.add(new FactCheckResult.Source(
+                            src.path("title").asText("Source"),
+                            src.path("url").asText("#"),
+                            src.path("type").asText("newspaper"),
+                            src.path("publisher").asText(""),
+                            FactCheckResult.EvidenceType.NEUTRAL
+                        ));
+                    }
                 }
             }
-            if (sources.isEmpty()) {
-                sources.add(new FactCheckResult.Source("Verified Literature", "https://scholar.google.com", "journal"));
+            if (allSources.isEmpty()) {
+                allSources.add(new FactCheckResult.Source("Verified Literature", "https://scholar.google.com", "journal"));
             }
-            r.setSources(sources);
+            r.setSources(allSources);
+
+            // ── Feature 2: Parse timeline (only entries with non-null source) ─
+            List<FactCheckResult.TimelineEvent> timeline = new ArrayList<>();
+            JsonNode tlArr = j.path("timeline");
+            if (tlArr.isArray()) {
+                for (JsonNode ev : tlArr) {
+                    String evDate  = ev.path("date").asText(null);
+                    String evTitle = ev.path("title").asText(null);
+                    String evDesc  = ev.path("description").asText(null);
+                    String evSrc   = ev.path("source").asText(null);
+                    if (evDate != null && evTitle != null && evDesc != null
+                            && evSrc != null && !evSrc.isBlank() && !"null".equalsIgnoreCase(evSrc)) {
+                        timeline.add(new FactCheckResult.TimelineEvent(evDate, evTitle, evDesc, evSrc));
+                    }
+                }
+            }
+            r.setTimeline(timeline);
+
         } catch (Exception ex) {
             r.setClaim(fallback != null ? fallback : "Unknown");
             r.setVerdict("UNVERIFIED");
@@ -997,6 +1150,24 @@ public class FactCheckerService {
             r.setSources(List.of(new FactCheckResult.Source("Sondhan Engine", "https://scholar.google.com", "journal")));
         }
         return r;
+    }
+
+    /** Parses a named JSON array node into a Source list with the given EvidenceType. */
+    private static List<FactCheckResult.Source> parseSourceArray(JsonNode parent, String field,
+                                                                   FactCheckResult.EvidenceType et) {
+        List<FactCheckResult.Source> list = new ArrayList<>();
+        JsonNode arr = parent.path(field);
+        if (!arr.isArray()) return list;
+        for (JsonNode src : arr) {
+            list.add(new FactCheckResult.Source(
+                src.path("title").asText("Source"),
+                src.path("url").asText("#"),
+                src.path("type").asText("newspaper"),
+                src.path("publisher").asText(""),
+                et
+            ));
+        }
+        return list;
     }
 
     private static String detectMime(String name) {

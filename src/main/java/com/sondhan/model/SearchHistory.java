@@ -4,7 +4,7 @@ import java.time.LocalDateTime;
 
 /**
  * Represents one row from the SQLite `searches` table.
- * Used to populate the History screen.
+ * Used to populate the History screen and Analytics dashboard (Feature 4).
  */
 public class SearchHistory {
     private int           id;
@@ -21,6 +21,14 @@ public class SearchHistory {
     private String        aiModel;
     private String        sourceUrl;
     private String        correction;
+
+    // ── Feature 1: Evidence classification blobs ──────────────────────────────
+    private String        supportingEvidenceJson;
+    private String        contradictingEvidenceJson;
+    private String        neutralEvidenceJson;
+
+    // ── Feature 2: Timeline blob ──────────────────────────────────────────────
+    private String        timelineJson;
 
     // ── Getters / Setters ─────────────────────────────────────────────────────
     public int           getId()              { return id; }
@@ -51,4 +59,34 @@ public class SearchHistory {
     public void          setSourceUrl(String v){ sourceUrl = v; }
     public String        getCorrection()      { return correction; }
     public void          setCorrection(String v){ correction = v; }
+
+    public String        getSupportingEvidenceJson()            { return supportingEvidenceJson; }
+    public void          setSupportingEvidenceJson(String v)    { supportingEvidenceJson = v; }
+    public String        getContradictingEvidenceJson()         { return contradictingEvidenceJson; }
+    public void          setContradictingEvidenceJson(String v) { contradictingEvidenceJson = v; }
+    public String        getNeutralEvidenceJson()               { return neutralEvidenceJson; }
+    public void          setNeutralEvidenceJson(String v)       { neutralEvidenceJson = v; }
+    public String        getTimelineJson()                      { return timelineJson; }
+    public void          setTimelineJson(String v)              { timelineJson = v; }
+
+    // ── Convenience helpers ───────────────────────────────────────────────────
+
+    public int getSupportingCount() {
+        return countJsonArray(supportingEvidenceJson);
+    }
+    public int getContradictingCount() {
+        return countJsonArray(contradictingEvidenceJson);
+    }
+    public int getNeutralCount() {
+        return countJsonArray(neutralEvidenceJson);
+    }
+
+    private int countJsonArray(String json) {
+        if (json == null || json.isBlank() || "null".equalsIgnoreCase(json.trim())) return 0;
+        String t = json.trim();
+        if (!t.startsWith("[")) return 0;
+        int count = 0;
+        for (char c : t.toCharArray()) if (c == '{') count++;
+        return count;
+    }
 }

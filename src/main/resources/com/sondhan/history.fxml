@@ -54,6 +54,46 @@
                 </VBox>
             </HBox>
 
+            <!-- ── Feature 4: Analytics Dashboard ──────────────────────────── -->
+            <VBox fx:id="analyticsSection" spacing="12.0" VBox.vgrow="NEVER">
+                <HBox alignment="CENTER_LEFT" spacing="8.0">
+                    <Label text="📊 ANALYTICS DASHBOARD" styleClass="section-label"/>
+                    <Region HBox.hgrow="ALWAYS"/>
+                    <ProgressIndicator fx:id="analyticsSpinner" prefHeight="16.0" visible="false"/>
+                </HBox>
+
+                <HBox spacing="14.0">
+
+                    <!-- Verdict Distribution -->
+                    <VBox styleClass="panel" spacing="8.0" HBox.hgrow="ALWAYS">
+                        <padding><Insets top="12" right="14" bottom="12" left="14"/></padding>
+                        <Label text="VERDICT DISTRIBUTION" styleClass="section-label"/>
+                        <VBox fx:id="verdictDistributionBox" spacing="6.0"/>
+                    </VBox>
+
+                    <!-- Verification Methods -->
+                    <VBox styleClass="panel" spacing="8.0" prefWidth="200">
+                        <padding><Insets top="12" right="14" bottom="12" left="14"/></padding>
+                        <Label text="VERIFICATION METHODS" styleClass="section-label"/>
+                        <HBox fx:id="verificationMethodsBox" spacing="8.0" alignment="CENTER"/>
+                    </VBox>
+
+                    <!-- Source Distribution -->
+                    <VBox styleClass="panel" spacing="8.0" HBox.hgrow="ALWAYS">
+                        <padding><Insets top="12" right="14" bottom="12" left="14"/></padding>
+                        <Label text="SOURCE DISTRIBUTION" styleClass="section-label"/>
+                        <VBox fx:id="sourceDistributionBox" spacing="6.0"/>
+                    </VBox>
+
+                    <!-- Recent Activity -->
+                    <VBox styleClass="panel" spacing="8.0" prefWidth="280">
+                        <padding><Insets top="12" right="14" bottom="12" left="14"/></padding>
+                        <Label text="RECENT ACTIVITY" styleClass="section-label"/>
+                        <VBox fx:id="recentActivityBox" spacing="4.0"/>
+                    </VBox>
+                </HBox>
+            </VBox>
+
             <!-- ── Search & Filter Bar ──────────────────────────────────────── -->
             <HBox spacing="12.0" alignment="CENTER_LEFT">
                 <TextField fx:id="searchFilterField" promptText="🔍 Search past claims or topics..."
