@@ -93,7 +93,7 @@ public class HistoryController {
 
         // 1. Setup Filter ComboBox
         verdictFilterCombo.setItems(FXCollections.observableArrayList(
-            "All Verdicts", "TRUE", "FALSE", "MISLEADING", "MODIFIED / OUT OF CONTEXT", "UNVERIFIED"
+            "All Verdicts", "TRUE", "FALSE", "MISLEADING", "MODIFIED / OUT OF CONTEXT", "UNVERIFIED", "RESTRICTED"
         ));
         verdictFilterCombo.getSelectionModel().select(0);
 
@@ -134,6 +134,7 @@ public class HistoryController {
                     case "FALSE"      -> "-fx-background-color:#991b1b;-fx-text-fill:#f87171;-fx-font-weight:bold;-fx-padding:3 8;-fx-background-radius:10;";
                     case "MISLEADING" -> "-fx-background-color:#92400e;-fx-text-fill:#fbbf24;-fx-font-weight:bold;-fx-padding:3 8;-fx-background-radius:10;";
                     case "MODIFIED / OUT OF CONTEXT" -> "-fx-background-color:#c2410c;-fx-text-fill:#fed7aa;-fx-font-weight:bold;-fx-padding:3 8;-fx-background-radius:10;";
+                    case "RESTRICTED" -> "-fx-background-color:#5b21b6;-fx-text-fill:#c4b5fd;-fx-font-weight:bold;-fx-padding:3 8;-fx-background-radius:10;";
                     default           -> "-fx-background-color:#334155;-fx-text-fill:#cbd5e1;-fx-font-weight:bold;-fx-padding:3 8;-fx-background-radius:10;";
                 });
                 setGraphic(badge);
@@ -466,6 +467,7 @@ public class HistoryController {
                 case "FALSE"                  -> "✕";
                 case "MISLEADING"             -> "⚠";
                 case "MODIFIED / OUT OF CONTEXT" -> "⚡";
+                case "RESTRICTED"             -> "⛔";
                 default                        -> "?";
             });
             iconLabel.setStyle("-fx-font-size: 13px;");
@@ -504,6 +506,7 @@ public class HistoryController {
             case "FALSE"                  -> "#EF4444";
             case "MISLEADING"             -> "#F59E0B";
             case "MODIFIED / OUT OF CONTEXT" -> "#EA580C";
+            case "RESTRICTED"             -> "#8B5CF6";
             default                        -> "#475569";
         };
     }
@@ -536,12 +539,13 @@ public class HistoryController {
 
         String verdict = h.getVerdict() != null ? h.getVerdict().toUpperCase() : "UNVERIFIED";
         detailVerdictLabel.setText(verdict);
-        detailVerdictLabel.getStyleClass().removeAll("verdict-true", "verdict-false", "verdict-misleading", "verdict-unverified", "verdict-modified");
+        detailVerdictLabel.getStyleClass().removeAll("verdict-true", "verdict-false", "verdict-misleading", "verdict-unverified", "verdict-modified", "verdict-restricted");
         detailVerdictLabel.getStyleClass().add(switch (verdict) {
             case "TRUE"       -> "verdict-true";
             case "FALSE"      -> "verdict-false";
             case "MISLEADING" -> "verdict-misleading";
             case "MODIFIED / OUT OF CONTEXT" -> "verdict-modified";
+            case "RESTRICTED" -> "verdict-restricted";
             default           -> "verdict-unverified";
         });
 

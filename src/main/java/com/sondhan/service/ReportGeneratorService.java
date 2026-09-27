@@ -343,6 +343,7 @@ public class ReportGeneratorService {
             case "FALSE"                  -> "❌";
             case "MISLEADING"             -> "⚠️";
             case "MODIFIED / OUT OF CONTEXT" -> "⚡";
+            case "RESTRICTED"             -> "⛔";
             default                       -> "❓";
         };
     }
@@ -353,6 +354,7 @@ public class ReportGeneratorService {
             case "ACCURATE"                -> "✅";
             case "POTENTIALLY MISLEADING"  -> "⚠️";
             case "CONTAINS FALSE CLAIMS"   -> "❌";
+            case "RESTRICTED"              -> "⛔";
             default                        -> "❓";
         };
     }

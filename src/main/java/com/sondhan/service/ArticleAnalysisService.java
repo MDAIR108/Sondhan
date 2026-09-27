@@ -38,6 +38,21 @@ public class ArticleAnalysisService {
         progress(progressCallback, "🌐 Fetching article from URL...");
         UrlContentExtractor.ExtractedPage page = UrlContentExtractor.extract(urlStr);
 
+        // Restricted platforms short-circuit the whole pipeline: no claim
+        // detection or verification runs — the result carries the restriction
+        // notice plus whatever public metadata was retrieved.
+        if (page.restricted) {
+            progress(progressCallback, "⛔ Restricted platform — metadata only.");
+            FactCheckResult restricted = FactCheckerService.restrictedResult(page);
+            articleResult.setTitle(page.title != null && !page.title.isBlank() ? page.title : "Article");
+            articleResult.setPublisher(UrlContentExtractor.platformName(page.siteKind));
+            articleResult.setPublishDate(page.publishDate != null ? page.publishDate : "");
+            articleResult.setOverallVerdict("RESTRICTED");
+            articleResult.setOverallSummary(restricted.getExplanation());
+            articleResult.setClaims(List.of());
+            return articleResult;
+        }
+
         articleResult.setTitle(page.title != null ? page.title : "Article");
         articleResult.setPublisher(extractPublisher(urlStr));
         articleResult.setPublishDate(page.publishDate != null ? page.publishDate : "");

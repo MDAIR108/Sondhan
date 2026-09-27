@@ -10,6 +10,9 @@ import com.sondhan.model.User;
  *   1. Google Gemini (Free / AI Studio): SessionManager.setGeminiKey("AIzaSy...")
  *   2. OpenAI ChatGPT: SessionManager.setOpenAiKey("sk-...")
  *   3. Anthropic Claude: SessionManager.setClaudeKey("sk-ant-...")
+ *   4. Google Vision (reverse image search, optional): VISION_API_KEY env var
+ *      or SessionManager.setVisionKey(...); falls back to the Gemini key when
+ *      the Vision API is enabled on the same Google Cloud project.
  */
 public class SessionManager {
 
@@ -40,6 +43,21 @@ public class SessionManager {
     public static String  getClaudeKey()         { return claudeKey; }
     public static boolean hasClaudeKey()         { return claudeKey != null && !claudeKey.isBlank(); }
 
+    // ── Google Vision (reverse image search) ──────────────────────────────────
+    // Dedicated key optional: falls back to the Gemini key, which works when
+    // the Vision API is enabled on the same Google Cloud project.
+    private static String visionKey = "";
+
+    public static void    setVisionKey(String k) { visionKey = (k == null ? "" : k.trim()); }
+    /** Explicit vision key, else the Gemini key as documented fallback ("" if none). */
+    public static String  getVisionKey() {
+        if (visionKey != null && !visionKey.isBlank()) return visionKey;
+        return getGeminiKey();
+    }
+    public static boolean hasVisionKey() {
+        return (visionKey != null && !visionKey.isBlank()) || hasGeminiKey();
+    }
+
     /** Returns true if at least one AI key is configured. */
     public static boolean hasAnyKey() {
         return hasGeminiKey() || hasOpenAiKey() || hasClaudeKey();
@@ -55,6 +73,7 @@ public class SessionManager {
         loadEnvKey("GEMINI_API_KEY", SessionManager::hasGeminiKey, SessionManager::setGeminiKey, "Gemini");
         loadEnvKey("OPENAI_API_KEY", SessionManager::hasOpenAiKey, SessionManager::setOpenAiKey, "ChatGPT");
         loadEnvKey("ANTHROPIC_API_KEY", SessionManager::hasClaudeKey, SessionManager::setClaudeKey, "Claude");
+        loadEnvKey("VISION_API_KEY", () -> visionKey != null && !visionKey.isBlank(), SessionManager::setVisionKey, "Vision");
         if (!hasAnyKey()) {
             System.err.println("[Keys] No Live AI keys found (env GEMINI_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY, or Settings dialog). Using offline engine.");
         }

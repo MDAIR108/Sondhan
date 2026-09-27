@@ -555,6 +555,20 @@
     -fx-effect: dropshadow(gaussian, rgba(234, 88, 12, 0.5), 14, 0, 0, 2);
 }
 
+.v-res { -fx-text-fill: #a78bfa; }
+.light-mode .v-res { -fx-text-fill: #6d28d9; }
+
+/* Unsupported / login-walled platform: distinct from UNVERIFIED */
+.verdict-restricted {
+    -fx-background-color: linear-gradient(to right, #6d28d9, #8b5cf6);
+    -fx-text-fill: #ffffff;
+    -fx-font-weight: 900;
+    -fx-font-size: 15px;
+    -fx-background-radius: 20;
+    -fx-padding: 8 18;
+    -fx-effect: dropshadow(gaussian, rgba(139, 92, 246, 0.5), 14, 0, 0, 2);
+}
+
 /* ── Correction Card ("What's actually true") ────────────────────────────── */
 .correction-card {
     -fx-background-color: linear-gradient(to right, rgba(16, 185, 129, 0.12), rgba(56, 189, 248, 0.08));

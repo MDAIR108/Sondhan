@@ -409,15 +409,27 @@ public class HomeController {
     }
 
     /**
-     * Feature 3: Full URL Article Analysis Task running on ExecutorService daemon pool.
-     * Uses ArticleAnalysisService for multi-claim detection and verification.
+     * Feature 3: Full URL Article Analysis Task.
+     * The Task is created AND configured on the FX Application Thread (from
+     * handleCheck). Only call() runs on the background thread, where just
+     * background-safe Task APIs may be used: updateMessage()/updateProgress().
+     * NEVER call task.getProgress()/getValue()/getException() (or setOn* methods)
+     * from inside call() — once started, those throw
+     * IllegalStateException("Task must only be used from the FX Application Thread").
      */
     private void executeUrlTask(String model, String urlStr) {
         Task<ArticleAnalysisResult> task = new Task<>() {
+            // Local progress accumulator. getProgress() is illegal off the FX
+            // thread, so progress is tracked here instead of read back from
+            // the Task (this was the "Task must only be used..." crash).
+            double stagedProgress = 0.0;
+
             @Override protected ArticleAnalysisResult call() throws Exception {
+                // Background thread: network fetch + verification only. No UI access.
                 return ArticleAnalysisService.analyzeArticle(model, urlStr, msg -> {
                     updateMessage(msg);
-                    updateProgress(getProgress() + 0.15, 1.0);
+                    stagedProgress = Math.min(stagedProgress + 0.15, 1.0);
+                    updateProgress(stagedProgress, 1.0);
                 });
             }
         };
@@ -470,6 +482,10 @@ public class HomeController {
 
     /**
      * Topic 2: Task property binding and thread-safe UI completion callback.
+     * Called on the FX Application Thread: bindings + setOn* handlers are
+     * configured here (legal pre-start), then the Task runs on a dedicated
+     * daemon thread. Completion/failure callbacks dispatch to the FX thread,
+     * where task.getValue()/getException() are safe to call.
      */
     private void wireTask(Task<FactCheckResult> task, String inputType, String originalInput, String modelName) {
         loadingLabel.textProperty().bind(task.messageProperty());
@@ -492,11 +508,16 @@ public class HomeController {
             alert("Verification Error", err != null ? err.getMessage() : "Unknown verification failure.");
         }));
 
-        FactCheckerService.getExecutor().submit(task);
+        // Start on a dedicated daemon thread (never task.run() on the FX thread).
+        Thread thread = new Thread(task, "sondhan-verify-thread");
+        thread.setDaemon(true);
+        thread.start();
     }
 
     /**
      * Feature 3: Article Analysis Task wiring – displays multi-claim results.
+     * Same threading contract as wireTask: configure on FX, run on background,
+     * touch UI only in the FX-dispatched callbacks below.
      */
     private void wireArticleTask(Task<ArticleAnalysisResult> task, String inputType, String originalInput, String modelName) {
         loadingLabel.textProperty().bind(task.messageProperty());
@@ -516,10 +537,41 @@ public class HomeController {
             taskProgressBar.progressProperty().unbind();
             setLoading(false);
             Throwable err = task.getException();
-            alert("Article Analysis Error", err != null ? err.getMessage() : "Unknown article analysis failure.");
+            // Full trace goes to the log; the dialog shows a friendly message.
+            System.err.println("[Article Analysis Failed]");
+            if (err != null) err.printStackTrace(System.err);
+            alert("Article Analysis Error", friendlyArticleError(err));
         }));
 
-        FactCheckerService.getExecutor().submit(task);
+        // Start on a dedicated daemon thread (never task.run() on the FX thread).
+        Thread thread = new Thread(task, "sondhan-article-thread");
+        thread.setDaemon(true);
+        thread.start();
+    }
+
+    /**
+     * Maps a URL-verification failure to a user-friendly message (no raw
+     * exception text in the dialog). The full stack trace is logged to stderr.
+     */
+    private String friendlyArticleError(Throwable err) {
+        if (err == null) return "Article analysis failed for an unknown reason. Please try again.";
+        String low = String.valueOf(err.getMessage()).toLowerCase();
+        if (low.contains("unknownhost") || low.contains("connectexception")
+                || low.contains("timed out") || low.contains("timeout")
+                || low.contains("no route to host") || low.contains("network is unreachable")) {
+            return "Could not reach the article URL. Check your internet connection and that the link is correct, then try again.";
+        }
+        if (low.contains("404") || low.contains("not found") || low.contains("http 4")
+                || low.contains("failed after 4 attempts")) {
+            return "The article could not be fetched (page not found or the site is overloaded). The link may be wrong, private, or blocking automated access — please try again later.";
+        }
+        if (low.contains("non-html") || low.contains("content type")) {
+            return "That link is not a readable article page (only HTML pages can be verified).";
+        }
+        if (low.contains("empty") || low.contains("no readable") || low.contains("no text")) {
+            return "No readable article text was found at that link. Try a different article URL.";
+        }
+        return "Article analysis failed. Please check the URL and try again.";
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -568,20 +620,22 @@ public class HomeController {
             case "FALSE"      -> "✕ FALSE CLAIM";
             case "MISLEADING" -> "⚠ MISLEADING";
             case "MODIFIED / OUT OF CONTEXT" -> "⚡ MODIFIED / OUT OF CONTEXT";
+            case "RESTRICTED" -> "⛔ RESTRICTED SOURCE";
             default           -> "? UNVERIFIED";
         });
-        verdictLabel.getStyleClass().removeAll("verdict-true", "verdict-false", "verdict-misleading", "verdict-unverified", "verdict-modified");
+        verdictLabel.getStyleClass().removeAll("verdict-true", "verdict-false", "verdict-misleading", "verdict-unverified", "verdict-modified", "verdict-restricted");
         verdictLabel.getStyleClass().add(switch (r.getVerdict()) {
             case "TRUE"       -> "verdict-true";
             case "FALSE"      -> "verdict-false";
             case "MISLEADING" -> "verdict-misleading";
             case "MODIFIED / OUT OF CONTEXT" -> "verdict-modified";
+            case "RESTRICTED" -> "verdict-restricted";
             default           -> "verdict-unverified";
         });
 
-        // 2. Confidence Level
-        confidenceBar.setProgress(r.getConfidence() / 100.0);
-        confidencePctLabel.setText(r.getConfidence() + "%");
+        // 2. Confidence Level (RESTRICTED carries no score — show 0% without a bar fill)
+        confidenceBar.setProgress("RESTRICTED".equalsIgnoreCase(r.getVerdict()) ? 0.0 : r.getConfidence() / 100.0);
+        confidencePctLabel.setText("RESTRICTED".equalsIgnoreCase(r.getVerdict()) ? "—" : r.getConfidence() + "%");
 
         // 3. Badges (Preloaded & Model Used)
         preloadedBadge.setVisible(r.isPreloaded());
@@ -693,11 +747,16 @@ public class HomeController {
             }
         } else {
             // Item 4: no sources at all → explicit retrieval-failure notice, never a silent gap.
+            // RESTRICTED verdicts get their own notice (restriction reason + public metadata)
+            // instead of the generic retrieval-failure card.
+            boolean isRestricted = "RESTRICTED".equalsIgnoreCase(r.getVerdict());
             VBox noEv = new VBox(4);
             noEv.getStyleClass().add("fallback-banner");
-            Label noEvTitle = new Label("⚠ NO SOURCES RETRIEVED");
+            Label noEvTitle = new Label(isRestricted ? "⛔ RESTRICTED SOURCE" : "⚠ NO SOURCES RETRIEVED");
             noEvTitle.getStyleClass().add("fallback-banner-title");
-            Label noEvText = new Label("No sources could be retrieved or analyzed for this claim. "
+            Label noEvText = new Label(isRestricted && r.getExplanation() != null && !r.getExplanation().isBlank()
+                    ? r.getExplanation()
+                    : "No sources could be retrieved or analyzed for this claim. "
                     + "This is a retrieval failure, not an inconclusive verification.");
             noEvText.getStyleClass().add("fallback-banner-text");
             noEvText.setWrapText(true);
@@ -782,13 +841,15 @@ public class HomeController {
             case "ACCURATE"                -> "✅ ACCURATE";
             case "POTENTIALLY MISLEADING"  -> "⚠️ POTENTIALLY MISLEADING";
             case "CONTAINS FALSE CLAIMS"   -> "❌ CONTAINS FALSE CLAIMS";
+            case "RESTRICTED"              -> "⛔ RESTRICTED SOURCE";
             default                        -> "❓ UNVERIFIED";
         });
-        articleOverallVerdictLabel.getStyleClass().removeAll("verdict-true", "verdict-false", "verdict-misleading", "verdict-unverified", "verdict-modified");
+        articleOverallVerdictLabel.getStyleClass().removeAll("verdict-true", "verdict-false", "verdict-misleading", "verdict-unverified", "verdict-modified", "verdict-restricted");
         articleOverallVerdictLabel.getStyleClass().add(switch (overallV != null ? overallV.toUpperCase() : "") {
             case "ACCURATE"                -> "verdict-true";
             case "POTENTIALLY MISLEADING"  -> "verdict-misleading";
             case "CONTAINS FALSE CLAIMS"   -> "verdict-false";
+            case "RESTRICTED"              -> "verdict-restricted";
             default                        -> "verdict-unverified";
         });
         articleOverallSummaryLabel.setText(article.getOverallSummary() != null ? article.getOverallSummary() : "");
@@ -800,6 +861,7 @@ public class HomeController {
             long falseCount = article.getClaims().stream().filter(c -> "FALSE".equalsIgnoreCase(c.getVerdict()) || "MODIFIED / OUT OF CONTEXT".equalsIgnoreCase(c.getVerdict())).count();
             long misCount   = article.getClaims().stream().filter(c -> "MISLEADING".equalsIgnoreCase(c.getVerdict())).count();
             long unvCount   = article.getClaims().stream().filter(c -> "UNVERIFIED".equalsIgnoreCase(c.getVerdict())).count();
+            long resCount   = article.getClaims().stream().filter(c -> "RESTRICTED".equalsIgnoreCase(c.getVerdict())).count();
 
             articleBreakdownBox.getChildren().addAll(
                 buildBreakdownPill("✓ Supported", (int) trueCount, "#34d399"),
@@ -807,6 +869,10 @@ public class HomeController {
                 buildBreakdownPill("✕ Unsupported", (int) falseCount, "#f87171"),
                 buildBreakdownPill("? Unverified", (int) unvCount, "#94a3b8")
             );
+            if (resCount > 0) {
+                articleBreakdownBox.getChildren().add(
+                    buildBreakdownPill("⛔ Restricted", (int) resCount, "#8B5CF6"));
+            }
         }
 
         // 4. Save to database (parent search + article_claims rows)
@@ -830,7 +896,8 @@ public class HomeController {
         // Verdict icon
         String verdict = cr.getVerdict();
         boolean claimUnav = cr.getResult() != null && cr.getResult().isVerificationUnavailable();
-        Label iconLabel = new Label(claimUnav ? "⚠" : switch (verdict != null ? verdict.toUpperCase() : "") {
+        boolean claimRestricted = "RESTRICTED".equalsIgnoreCase(verdict);
+        Label iconLabel = new Label(claimUnav ? "⚠" : claimRestricted ? "⛔" : switch (verdict != null ? verdict.toUpperCase() : "") {
             case "TRUE"                   -> "✅";
             case "FALSE"                  -> "✕";
             case "MISLEADING"             -> "⚠";
@@ -849,6 +916,7 @@ public class HomeController {
         claimText.setWrapText(true);
 
         Label confLabel = new Label(claimUnav ? "verification unavailable — see details"
+                : claimRestricted ? "restricted source — not scored"
                 : cr.getConfidence() + "% confidence");
         confLabel.getStyleClass().add("text-muted");
         confLabel.setStyle("-fx-font-size: 11px;");
@@ -921,13 +989,13 @@ public class HomeController {
             return detail;
         }
 
-        // Verdict + confidence
+        // Verdict + confidence (RESTRICTED carries no score)
         HBox verdictRow = new HBox(10);
         verdictRow.setAlignment(Pos.CENTER_LEFT);
         Label vLabel = new Label(r.getVerdict());
         vLabel.getStyleClass().add(getVerdictClass(r.getVerdict()));
         vLabel.setStyle("-fx-font-weight: 800; -fx-font-size: 13px;");
-        Label cLabel = new Label(r.getConfidence() + "%");
+        Label cLabel = new Label("RESTRICTED".equalsIgnoreCase(r.getVerdict()) ? "not scored" : r.getConfidence() + "%");
         cLabel.getStyleClass().add("src-url");
         cLabel.setStyle("-fx-font-weight: 700;");
         verdictRow.getChildren().addAll(vLabel, cLabel);
@@ -988,6 +1056,7 @@ public class HomeController {
             case "FALSE"                  -> "v-false";
             case "MISLEADING"             -> "v-mis";
             case "MODIFIED / OUT OF CONTEXT" -> "v-mod";
+            case "RESTRICTED"             -> "v-res";
             default                        -> "v-unv";
         };
     }
@@ -1002,6 +1071,7 @@ public class HomeController {
                 case "#fbbf24" -> "#b45309";
                 case "#f87171" -> "#b91c1c";
                 case "#94a3b8" -> "#475569";
+                case "#8B5CF6" -> "#6d28d9";
                 default -> color;
             };
         }

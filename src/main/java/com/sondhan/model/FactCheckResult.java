@@ -74,7 +74,7 @@ public class FactCheckResult {
 
     // ── Core fields ───────────────────────────────────────────────────────────
     private String       claim;
-    private String       verdict;      // TRUE | FALSE | MISLEADING | UNVERIFIED | MODIFIED / OUT OF CONTEXT
+    private String       verdict;      // TRUE | FALSE | MISLEADING | UNVERIFIED | MODIFIED / OUT OF CONTEXT | RESTRICTED
     private String       explanation;
     private int          confidence;   // 0–100
     private List<Source> sources;      // flat list (all sources – backward compat)

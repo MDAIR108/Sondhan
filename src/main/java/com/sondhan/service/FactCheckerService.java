@@ -519,6 +519,33 @@ public class FactCheckerService {
             }
         }
 
+        // 4b. Reverse image search (legitimate API, never page scraping).
+        // Runs when vision LLMs were skipped/failed: submits the image BYTES
+        // to Cloud Vision web detection to find public origin pages — the
+        // sanctioned path for images from login-walled platforms, whose CDNs
+        // are never scraped. Skipped silently when no key is configured.
+        if (ReverseImageSearchService.isConfigured()) {
+            try {
+                ReverseImageSearchService.WebDetectionResult det =
+                    ReverseImageSearchService.searchByImage(imageFile);
+                if (det.hasMatches()) {
+                    FactCheckResult web = ReverseImageSearchService.toFactCheckResult(imageFile, det);
+                    SourceRetrievalService.verifyAndEnrich(web);
+                    System.err.println("[Engine] image claim served from reverse image search ("
+                        + det.pages.size() + " origin page(s)).");
+                    return web;
+                }
+                System.err.println("[Vision] web detection found no matching pages — continuing to offline heuristic.");
+            } catch (IllegalStateException ise) {
+                System.err.println("[Vision] skipped: " + ise.getMessage());
+            } catch (Exception ex) {
+                noteLiveFailure("vision-webdesc", ex);
+                System.err.println("[Vision] web detection failed: " + ex.getMessage() + " — continuing to offline heuristic.");
+            }
+        } else {
+            System.err.println("[Vision] reverse image search not configured — skipping.");
+        }
+
         // 5. Built-in Image Heuristic Analysis (Free Mode)
         Thread.sleep(800);
         String liveErrImg = takeLiveFailure();
@@ -550,6 +577,12 @@ public class FactCheckerService {
      */
     public static FactCheckResult checkUrlClaim(String model, String urlStr) throws Exception {
         UrlContentExtractor.ExtractedPage page = UrlContentExtractor.extract(urlStr);
+
+        // Restricted platforms: no full verification possible — return the
+        // RESTRICTED state with whatever public metadata was retrieved.
+        if (page.restricted) {
+            return restrictedResult(page);
+        }
 
         FactCheckResult result = null;
 
@@ -601,9 +634,41 @@ public class FactCheckerService {
         return result;
     }
 
-    // ═════════════════════════════════════════════════════════════════════════
-    //  Intelligent Built-in Fact Verification Engine (Offline / Free Mode)
-    // ═════════════════════════════════════════════════════════════════════════
+    /**
+     * Builds the RESTRICTED verdict for login-walled / bot-protected platforms.
+     * Distinct from UNVERIFIED: nothing was evaluated, so no confidence score
+     * or evidence is presented — only the restriction reason plus whatever
+     * public Open Graph metadata could be read.
+     */
+    public static FactCheckResult restrictedResult(UrlContentExtractor.ExtractedPage page) {
+        FactCheckResult r = new FactCheckResult();
+        String platform = UrlContentExtractor.platformName(page.siteKind);
+        String title = (page.title != null && !page.title.isBlank()) ? page.title : ("Post from " + platform);
+        r.setClaim(title);
+        r.setVerdict("RESTRICTED");
+        r.setConfidence(0);
+        StringBuilder expl = new StringBuilder();
+        expl.append(page.restrictionNotice != null ? page.restrictionNotice
+            : ("This platform restricts automated access. Full verification isn't available for " + platform + " links."));
+        if (!page.ogDescription.isBlank()) {
+            expl.append("\n\nPublic metadata retrieved — description: \"").append(page.ogDescription).append("\"");
+        } else if (!page.hasPublicMetadata()) {
+            expl.append(" No public metadata could be retrieved.");
+        }
+        r.setExplanation(expl.toString());
+        r.setCorrection(null);
+        r.setSources(List.of());
+        r.setPreloaded(false);
+        r.setAiModel("Sondhan URL Classifier (Restricted Source)");
+        r.setInputType("url");
+        r.setSourceUrl(page.url);
+        if (page.imageUrl != null && !page.imageUrl.isBlank()) {
+            // Public og:image URL only — never downloaded from restricted CDNs here.
+            r.setSubmittedImageUrl(page.imageUrl);
+        }
+        System.err.println("[Engine] URL classified RESTRICTED (" + platform + "): metadata-only result.");
+        return r;
+    }
 
     /**
      * Intelligently verifies any claim without needing a paid API key,
