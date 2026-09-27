@@ -53,6 +53,11 @@ public class ReportGeneratorService {
         sb.append("| **Engine**       | ").append(safe(r.getAiModel(), "Sondhan AI")).append(" |\n");
         sb.append("\n---\n\n");
 
+        // ── Offline-fallback notice (item 5) ────────────────────────────────────
+        if (r.getFallbackReason() != null && !r.getFallbackReason().isBlank()) {
+            sb.append("> ⚠ **Offline fallback:** ").append(r.getFallbackReason()).append("\n\n");
+        }
+
         // ── Claim ─────────────────────────────────────────────────────────────
         sb.append("## 🔍 Claim\n\n");
         sb.append("> ").append(safe(r.getClaim(), "N/A")).append("\n\n");
@@ -105,6 +110,17 @@ public class ReportGeneratorService {
             sb.append("\n");
         }
 
+        // Item 4: explicit retrieval-failure notice when nothing was retrieved.
+        if (supCount + conCount + neuCount == 0
+                && (r.getSources() == null || r.getSources().isEmpty())) {
+            sb.append("## ⚠ Source Retrieval\n\n");
+            sb.append("No sources could be retrieved or analyzed for this claim. "
+                    + "This is a retrieval failure, not an inconclusive verification.\n\n");
+        } else if (supCount == 0 && conCount == 0 && neuCount > 0) {
+            sb.append("> ⚠ **Note:** no supporting or contradicting evidence was found — "
+                    + neuCount + " background source(s) below are context only. The claim remains unverified.\n\n");
+        }
+
         // ── Claim Timeline (Feature 2) ────────────────────────────────────────
         if (r.getTimeline() != null && !r.getTimeline().isEmpty()) {
             sb.append("## 🕐 Claim Timeline\n\n");
@@ -130,15 +146,6 @@ public class ReportGeneratorService {
             }
             if (r.getSubmittedDimensions() != null && !r.getSubmittedDimensions().isBlank()) {
                 sb.append("- **Dimensions:** ").append(r.getSubmittedDimensions()).append("\n");
-            }
-            sb.append("\n");
-        }
-
-        // ── Executive Summary ─────────────────────────────────────────────────
-        if (r.getSummary() != null && !r.getSummary().isEmpty()) {
-            sb.append("## 📋 10-Point Executive Summary\n\n");
-            for (String bullet : r.getSummary()) {
-                sb.append(bullet).append("\n");
             }
             sb.append("\n");
         }
@@ -233,6 +240,7 @@ public class ReportGeneratorService {
             root.put("aiModel",     safe(r.getAiModel(), "Sondhan AI"));
             root.put("inputType",   safe(r.getInputType(), "text"));
             root.put("sourceUrl",   safe(r.getSourceUrl(), ""));
+            root.put("fallbackReason", safe(r.getFallbackReason(), ""));
             root.put("generatedAt", LocalDateTime.now().format(DATE_FMT));
 
             // Flat sources

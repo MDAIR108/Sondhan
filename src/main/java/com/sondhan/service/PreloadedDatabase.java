@@ -56,18 +56,6 @@ public class PreloadedDatabase {
                 new FactCheckResult.Source("Prothom Alo – Fact Checking: Viral Social Media Claims", "https://en.prothomalo.com/topic/fact-check", "newspaper"),
                 new FactCheckResult.Source("Poynter IFCN – Standards for Fact-Checking Satirical Content", "https://www.poynter.org/ifcn/poynter-ifcn-code-of-principles/", "journal"),
                 new FactCheckResult.Source("Bangladesh Power Development Board – Official Tariff Records", "https://www.bpdb.gov.bd/bpdb/index.php?option=com_content&view=article&id=19&Itemid=179", "government")
-            ),
-            List.of(
-                "1. The claim attributes a statement to Saiyed Abdullah without any evidence.",
-                "2. No credible news source reported this statement.",
-                "3. The post originated from a self-described satirist account.",
-                "4. Rumor Scanner BD investigated and found no factual basis.",
-                "5. Verdict: FALSE – the claim is completely fabricated.",
-                "6. Social media misinformation can damage public figures' reputations.",
-                "7. Always verify political claims through multiple credible sources.",
-                "8. Satirist accounts are not credible news sources.",
-                "9. Bangladesh electricity pricing is a sensitive political topic.",
-                "10. Cross-reference any political claims with official statements."
             )
         ),
 
@@ -86,18 +74,6 @@ public class PreloadedDatabase {
                 new FactCheckResult.Source("New Age Bangladesh – Legal Case Dismissed, No Grounds Found", "https://www.newagebd.net/article/191234/court-dismisses-case-against-yunus", "newspaper"),
                 new FactCheckResult.Source("Grameen Bank Annual Report – Institutional Legal Standing", "https://www.grameen.com/grameen-bank-annual-report/", "book"),
                 new FactCheckResult.Source("Bangladesh Supreme Court – Case Docket Reference Database", "https://www.supremecourt.gov.bd/", "government")
-            ),
-            List.of(
-                "1. An application was filed but the court dismissed it.",
-                "2. No case was formally registered against Dr Yunus.",
-                "3. The headline is misleading as it implies an active case.",
-                "4. BDNEWS24 and The Daily Star both covered the dismissal.",
-                "5. Verdict: MISLEADING – partial truth presented as complete fact.",
-                "6. Court proceedings require distinguishing applications from registered cases.",
-                "7. Public figures are frequently targeted by unfounded legal applications.",
-                "8. Always check if a case was accepted by the court, not just filed.",
-                "9. Media must report dismissals with the same prominence as filings.",
-                "10. Cross-reference with official court records for accuracy."
             )
         ),
 
@@ -117,18 +93,6 @@ public class PreloadedDatabase {
                 new FactCheckResult.Source("The Daily Star – The Making of a Capital (1971 Independence Archive)", "https://www.thedailystar.net/in-focus/news/the-making-capital-1674487", "newspaper"),
                 new FactCheckResult.Source("Prothom Alo – Dhaka: 50 Years as the Nation's Capital", "https://en.prothomalo.com/bangladesh/city/dhaka-50-years-capital", "newspaper"),
                 new FactCheckResult.Source("Asian Development Bank – Bangladesh Country Report: Administrative Capital", "https://www.adb.org/countries/bangladesh/main#:~:text=Dhaka", "journal")
-            ),
-            List.of(
-                "1. Dhaka is constitutionally designated as the capital of Bangladesh.",
-                "2. Article 5 of the Bangladesh Constitution names Dhaka as capital.",
-                "3. This has been true since independence on December 16, 1971.",
-                "4. The Constitution was adopted in November 1972.",
-                "5. Dhaka has historically been a major urban centre since the Mughal era.",
-                "6. Bangladesh Government's official portal confirms Dhaka as capital.",
-                "7. Encyclopedia Britannica and academic sources corroborate this.",
-                "8. No credible source disputes this historical and constitutional fact.",
-                "9. Dhaka is home to the National Assembly (Jatiya Sangsad).",
-                "10. Verdict: TRUE – completely accurate and constitutionally verified."
             )
         ),
 
@@ -148,18 +112,6 @@ public class PreloadedDatabase {
                 new FactCheckResult.Source("The Lancet – Expert consensus: No evidence of 5G biological harm", "https://www.thelancet.com/journals/lanplh/article/PIIS2542-5196(20)30293-0/fulltext", "journal"),
                 new FactCheckResult.Source("Reuters Fact Check – 5G technology has no correlation with illness", "https://www.reuters.com/article/world/fact-check-5g-technology-does-not-cause-cancer-idUSKBN22V27E/", "newspaper"),
                 new FactCheckResult.Source("BBC Reality Check – The Facts About 5G and Health Risks", "https://www.bbc.com/news/technology-51328791", "newspaper")
-            ),
-            List.of(
-                "1. 5G uses non-ionizing radio frequencies – physically cannot cause cancer.",
-                "2. Ionizing radiation (X-rays, gamma rays) can damage DNA; 5G cannot.",
-                "3. WHO has explicitly stated there is no public health risk from 5G.",
-                "4. The U.S. FDA found no credible scientific evidence linking cell phones to cancer.",
-                "5. ICNIRP sets conservative exposure limits that 5G networks comply with.",
-                "6. Peer-reviewed studies in Nature confirm 5G safety within regulatory limits.",
-                "7. 5G misinformation spread rapidly during the COVID-19 pandemic.",
-                "8. Hundreds of towers were vandalized based on this false claim.",
-                "9. Scientific consensus is overwhelmingly in favour of 5G safety.",
-                "10. Verdict: FALSE – the claim is contradicted by all credible science."
             )
         ),
 
@@ -178,18 +130,6 @@ public class PreloadedDatabase {
                 new FactCheckResult.Source("Dhaka Tribune – Legal Representation Clarification at ICT Tribunal", "https://www.dhakatribune.com/bangladesh/court/324513/ict-mamun-case-counsel-clarification", "newspaper"),
                 new FactCheckResult.Source("Bangladesh Bar Council – Registered Advocates & Law Firms Directory", "https://www.barcouncil.gov.bd/", "government"),
                 new FactCheckResult.Source("Rumor Scanner BD – Misleading Attribution of Legal Counsel", "https://rumorscanner.com/fact-check/shishir-manir-ex-igp-mamun-misleading/", "newspaper")
-            ),
-            List.of(
-                "1. Ex-IGP Mamun was represented by Zayed bin Amzad from Shishir Manir's firm.",
-                "2. Shishir Manir himself did not appear in court for this case.",
-                "3. Attributing the legal representation to Manir personally is inaccurate.",
-                "4. BSS and TBS News both reported the correct lawyer's name.",
-                "5. Verdict: MISLEADING – partial truth with an inaccurate key detail.",
-                "6. Legal representation details are often misreported on social media.",
-                "7. Law firms and individual lawyers should not be conflated.",
-                "8. Verify court appearances through official court records.",
-                "9. This type of misinformation can prejudice legal proceedings.",
-                "10. Always cite primary court records when reporting legal matters."
             )
         ),
 
@@ -209,18 +149,6 @@ public class PreloadedDatabase {
                 new FactCheckResult.Source("NASA Mars Science Laboratory – Water History on Mars", "https://mars.nasa.gov/msl/mission/science/goals/", "government"),
                 new FactCheckResult.Source("The Guardian – Scientists Say Mars Has Flowing Saltwater Streams", "https://www.theguardian.com/science/2015/sep/28/nasa-scientists-find-evidence-flowing-water-mars", "newspaper"),
                 new FactCheckResult.Source("BBC Science – Mars Water: What We Know So Far", "https://www.bbc.com/news/science-environment-34389764", "newspaper")
-            ),
-            List.of(
-                "1. NASA found evidence of ancient liquid water on Mars, not current flowing water.",
-                "2. Recurring Slope Lineae (RSL) may involve briny water flows – still debated.",
-                "3. Mars has water ice at its poles confirmed by multiple missions.",
-                "4. Current Mars surface conditions make sustained liquid water very unlikely.",
-                "5. The Science journal published RSL findings in 2015.",
-                "6. Headlines often simplify complex scientific findings.",
-                "7. Verdict: MISLEADING – the claim overstates the scientific findings.",
-                "8. Mars exploration continues to find new evidence of water history.",
-                "9. The distinction between past and present water is scientifically critical.",
-                "10. Cross-reference NASA press releases with peer-reviewed papers."
             )
         ),
 
@@ -239,18 +167,6 @@ public class PreloadedDatabase {
                 new FactCheckResult.Source("Wikipedia Historical Record – Victor Lustig 1925 Decommission Scam", "https://en.wikipedia.org/wiki/Victor_Lustig#:~:text=Lustig%20is%20best%20known%20for%20the%20Eiffel%20Tower%20scam", "book"),
                 new FactCheckResult.Source("BBC History – Victor Lustig: The Man Who Sold the Eiffel Tower", "https://www.bbc.com/news/magazine-17255146", "newspaper"),
                 new FactCheckResult.Source("The Guardian – The Greatest Con Artists in History", "https://www.theguardian.com/artanddesign/2019/sep/04/greatest-con-artists-history-forgers-fakers", "newspaper")
-            ),
-            List.of(
-                "1. Victor Lustig posed as a French government official in 1925.",
-                "2. He invited six scrap-metal dealers to a secret 'government tender'.",
-                "3. André Poisson paid Lustig to 'buy' the Eiffel Tower.",
-                "4. Lustig fled to Austria with the money before the fraud was discovered.",
-                "5. He repeated the scam with a second victim shortly after.",
-                "6. Poisson was too embarrassed to report the crime to police.",
-                "7. Lustig was eventually arrested in the United States in 1935.",
-                "8. He is one of the most notorious con artists in history.",
-                "9. Smithsonian and BBC History have both documented this event.",
-                "10. Verdict: TRUE – thoroughly verified by multiple historical sources."
             )
         ),
 
@@ -270,18 +186,6 @@ public class PreloadedDatabase {
                 new FactCheckResult.Source("Nature – Cook et al.: Quantifying the consensus on climate change", "https://www.nature.com/articles/nclimate1388", "journal"),
                 new FactCheckResult.Source("The Guardian – Climate Scientists Respond to Denialism", "https://www.theguardian.com/environment/climate-consensus-97-per-cent/2013/may/16/97-percent-consensus-climate-scientists", "newspaper"),
                 new FactCheckResult.Source("BBC News – Is Climate Change Real? The Facts Explained", "https://www.bbc.com/news/science-environment-24021772", "newspaper")
-            ),
-            List.of(
-                "1. 97%+ of actively publishing climate scientists agree on human-caused climate change.",
-                "2. NASA satellites show measurable sea level rise of 3.3mm per year since 1993.",
-                "3. Global average temperature has risen 1.1°C since pre-industrial times (IPCC AR6).",
-                "4. Arctic sea ice extent has declined ~13% per decade since 1979.",
-                "5. NOAA temperature records from 6,300 stations worldwide confirm warming.",
-                "6. Multiple independent research groups using different methodologies reach the same conclusion.",
-                "7. The funding conspiracy theory is illogical – fossil fuel industries have far more funding.",
-                "8. IPCC reports are written by 800+ scientists from 80+ countries with no shared funding.",
-                "9. Cook et al. (2013) analysed 12,000 peer-reviewed papers – 97.1% endorsed consensus.",
-                "10. Verdict: FALSE – contradicted by the most robust scientific evidence in history."
             )
         )
     );
@@ -372,7 +276,6 @@ public class PreloadedDatabase {
                                  bestMatch.entry.explanation);
                 r.setCorrection(bestMatch.entry.correction);
                 r.setSources(bestMatch.entry.sources);
-                r.setSummary(bestMatch.entry.summary);
                 r.setPreloaded(true);
                 r.setAiModel("Preloaded Visual Forensics Engine");
                 // Evidence buckets from the flat archive list so Evidence Balance renders.
@@ -421,7 +324,6 @@ public class PreloadedDatabase {
         r.setExplanation(e.explanation);
         r.setCorrection(e.correction);
         r.setSources(e.sources);
-        r.setSummary(e.summary);
         r.setPreloaded(true);
         r.setAiModel("Preloaded Database");
         // Evidence buckets from the flat archive list so Evidence Balance renders
@@ -457,14 +359,13 @@ public class PreloadedDatabase {
         public final String knownDate;
         public final String correction;
         public final List<FactCheckResult.Source> sources;
-        public final List<String> summary;
 
         public Entry(String fn, String cl, String vd, int cf, String ex,
                      String ks, String kd, String corr,
-                     List<FactCheckResult.Source> src, List<String> sum) {
+                     List<FactCheckResult.Source> src) {
             fileName    = fn; claim       = cl; verdict     = vd;
             confidence  = cf; explanation = ex; knownSource = ks; knownDate   = kd;
-            correction  = corr; sources   = src; summary    = sum;
+            correction  = corr; sources   = src;
         }
     }
 }

@@ -79,7 +79,6 @@ public class FactCheckResult {
     private int          confidence;   // 0–100
     private List<Source> sources;      // flat list (all sources – backward compat)
     private boolean      preloaded;
-    private List<String> summary;
     private String       aiModel;      // "ChatGPT" | "Claude" | "Gemini" | "Preloaded"
     private String       inputType;    // "text" | "image" | "url"
 
@@ -93,6 +92,23 @@ public class FactCheckResult {
 
     // ── Report verification ID (Feature 5) ───────────────────────────────────
     private int verificationId = -1;
+
+    // ── Search-grounding flag (Part 3 correctness): true only when a Live AI
+    //    response carried grounding metadata confirming live sources were used.
+    private boolean grounded = false;
+
+    // ── Offline-fallback diagnostics ──────────────────────────────────────────
+    // fallbackReason: why the offline engine produced this result (null when a
+    // live engine or preloaded match succeeded). Surfaced in logs + UI banner.
+    private String  fallbackReason  = null;
+    // sourcesVerified: SourceRetrievalService already fetch-checked this result.
+    // Guards against double verification (and mutation of shared cached objects).
+    private boolean sourcesVerified = false;
+    // verificationUnavailable: live engines were attempted and failed
+    // transiently AFTER retries — the UI must render the unavailable card
+    // instead of any verdict/confidence/evidence placeholders.
+    private boolean verificationUnavailable = false;
+    private String  unavailableReason       = null;
 
     // ── URL & Forensics Extensions ────────────────────────────────────────────
     private String       sourceUrl;           // Scraped webpage URL
@@ -120,8 +136,6 @@ public class FactCheckResult {
     public void         setSources(List<Source> v) { sources = v; }
     public boolean      isPreloaded()        { return preloaded; }
     public void         setPreloaded(boolean v) { preloaded = v; }
-    public List<String> getSummary()         { return summary; }
-    public void         setSummary(List<String> v) { summary = v; }
     public String       getAiModel()         { return aiModel; }
     public void         setAiModel(String v) { aiModel = v; }
     public String       getInputType()       { return inputType; }
@@ -156,6 +170,55 @@ public class FactCheckResult {
     // ── Verification ID ───────────────────────────────────────────────────────
     public int  getVerificationId()     { return verificationId; }
     public void setVerificationId(int v){ verificationId = v; }
+
+    // ── Search-grounding flag ─────────────────────────────────────────────────
+    public boolean getGrounded()          { return grounded; }
+    public boolean isGrounded()           { return grounded; }
+    public void    setGrounded(boolean v) { grounded = v; }
+
+    // ── Offline-fallback diagnostics ──────────────────────────────────────────
+    public String  getFallbackReason()         { return fallbackReason; }
+    public void    setFallbackReason(String v) { fallbackReason = v; }
+    public boolean isSourcesVerified()         { return sourcesVerified; }
+    public void    setSourcesVerified(boolean v) { sourcesVerified = v; }
+    public boolean isVerificationUnavailable()          { return verificationUnavailable; }
+    public void    setVerificationUnavailable(boolean v){ verificationUnavailable = v; }
+    public String  getUnavailableReason()         { return unavailableReason; }
+    public void    setUnavailableReason(String v) { unavailableReason = v; }
+
+    /** True when at least one source exists in any evidence bucket. */
+    public boolean hasAnyEvidence() {
+        return getTotalEvidenceCount() > 0
+            || (sources != null && !sources.isEmpty());
+    }
+
+    /**
+     * Deep-ish copy: new lists sharing the immutable Source/TimelineEvent
+     * objects. Used before mutating results handed out of shared caches
+     * (e.g. PreloadedDatabase) so verification never pollutes the cache.
+     */
+    public FactCheckResult copy() {
+        FactCheckResult c = new FactCheckResult();
+        c.claim = claim; c.verdict = verdict; c.explanation = explanation;
+        c.confidence = confidence; c.preloaded = preloaded; c.aiModel = aiModel;
+        c.inputType = inputType; c.verificationId = verificationId;
+        c.grounded = grounded; c.fallbackReason = fallbackReason;
+        c.verificationUnavailable = verificationUnavailable;
+        c.unavailableReason = unavailableReason;
+        c.sources = sources != null ? new ArrayList<>(sources) : null;
+        c.supportingSources = new ArrayList<>(supportingSources);
+        c.contradictingSources = new ArrayList<>(contradictingSources);
+        c.neutralSources = new ArrayList<>(neutralSources);
+        c.timeline = new ArrayList<>(timeline);
+        c.sourceUrl = sourceUrl; c.extractedText = extractedText;
+        c.originalImageUrl = originalImageUrl; c.originalImageSource = originalImageSource;
+        c.originalImageDate = originalImageDate; c.originalImageHash = originalImageHash;
+        c.submittedImageUrl = submittedImageUrl; c.submittedImageHash = submittedImageHash;
+        c.submittedDimensions = submittedDimensions; c.submittedFormat = submittedFormat;
+        c.correction = correction;
+        c.sourcesVerified = false; // a copy must be (re-)verified, never trusted blind
+        return c;
+    }
 
     // ── URL / Forensics getters/setters ──────────────────────────────────────
     public String       getSourceUrl()       { return sourceUrl; }

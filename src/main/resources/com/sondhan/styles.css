@@ -972,6 +972,30 @@
     -fx-background-radius: 8;
 }
 
+/* ── Theme-aware text tokens (Part 2 contrast fix) ──────────────────────────
+   Dynamic result-view labels previously used inline light hex values that
+   .light-mode selectors can never override (inline style wins). These
+   color-only classes carry the text color per theme; font size/weight stay
+   inline in Java code and merge with the class. */
+.card-title  { -fx-text-fill: #F0F6FC; }
+.src-url     { -fx-text-fill: #14B8A6; }
+.ev-label    { -fx-text-fill: #CBD5E1; }
+.ev-count    { -fx-text-fill: #64748B; }
+.tl-desc     { -fx-text-fill: #94A3B8; }
+.corr-inline { -fx-text-fill: #34d399; }
+.v-true { -fx-text-fill: #34d399; }
+.v-false { -fx-text-fill: #f87171; }
+.v-mis { -fx-text-fill: #fbbf24; }
+.v-mod { -fx-text-fill: #fed7aa; }
+.v-unv { -fx-text-fill: #94a3b8; }
+
+.claim-detail {
+    -fx-background-color: #060b14;
+    -fx-background-radius: 8;
+    -fx-border-color: rgba(56,189,248,0.15);
+    -fx-border-radius: 8;
+}
+
 /* ════════════════════════════════════════════════════════════════════════════
    LIGHT MODE OVERRIDES (Ice Blue & Mint Green)
    ════════════════════════════════════════════════════════════════════════════ */
@@ -1114,3 +1138,81 @@
     -fx-background-color: #f1f5f9;
     -fx-border-color: #10b981;
 }
+
+/* ── Part 2: light-theme readable text (all ≥ 4.5:1 against white) ───────── */
+.light-mode .card-title { -fx-text-fill: #0f172a; }
+.light-mode .src-url { -fx-text-fill: #0e7490; }
+.light-mode .ev-label { -fx-text-fill: #1e293b; }
+.light-mode .ev-count { -fx-text-fill: #475569; }
+.light-mode .tl-desc { -fx-text-fill: #475569; }
+.light-mode .corr-inline { -fx-text-fill: #047857; }
+.light-mode .v-true { -fx-text-fill: #047857; }
+.light-mode .v-false { -fx-text-fill: #b91c1c; }
+.light-mode .v-mis { -fx-text-fill: #b45309; }
+.light-mode .v-mod { -fx-text-fill: #c2410c; }
+.light-mode .v-unv { -fx-text-fill: #475569; }
+
+.light-mode .claim-detail {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #cbd5e1;
+}
+
+.light-mode .text-muted { -fx-text-fill: #475569; }
+.light-mode .section-label { -fx-text-fill: #0369a1; }
+.light-mode .confidence-pct { -fx-text-fill: #047857; }
+.light-mode .correction-text { -fx-text-fill: #065f46; }
+.light-mode .correction-header { -fx-text-fill: #047857; }
+.light-mode .correction-card {
+    -fx-background-color: #ecfdf5;
+    -fx-border-color: #6ee7b7;
+}
+.light-mode .source-link { -fx-text-fill: #0369a1; }
+.light-mode .btn-open-source { -fx-text-fill: #047857; -fx-border-color: #6ee7b7; }
+.light-mode .gauge-pill {
+    -fx-text-fill: #1d4ed8;
+    -fx-background-color: #dbeafe;
+    -fx-border-color: #93c5fd;
+}
+.light-mode .badge-ai-model {
+    -fx-text-fill: #1d4ed8;
+    -fx-background-color: #dbeafe;
+    -fx-border-color: #93c5fd;
+}
+.light-mode .badge-free-mode {
+    -fx-text-fill: #047857;
+    -fx-background-color: #d1fae5;
+    -fx-border-color: #6ee7b7;
+}
+.light-mode .badge-source-newspaper { -fx-text-fill: #0369a1; -fx-background-color: #e0f2fe; }
+.light-mode .badge-source-book { -fx-text-fill: #b45309; -fx-background-color: #fef3c7; }
+.light-mode .badge-source-journal { -fx-text-fill: #047857; -fx-background-color: #d1fae5; }
+.light-mode .badge-source-government { -fx-text-fill: #6d28d9; -fx-background-color: #ede9fe; }
+.light-mode .hash-pill { -fx-text-fill: #047857; }
+.light-mode .header-subtitle { -fx-text-fill: #475569; }
+.light-mode .nav-label { -fx-text-fill: #0369a1; }
+.light-mode .user-label { -fx-text-fill: #047857; }
+
+/* ── Offline-fallback banner (item 5: visible reason on fallback) ─────────── */
+.fallback-banner {
+    -fx-background-color: rgba(245, 158, 11, 0.12);
+    -fx-background-radius: 10;
+    -fx-border-color: rgba(245, 158, 11, 0.5);
+    -fx-border-radius: 10;
+    -fx-border-width: 1.5;
+    -fx-padding: 12 16;
+}
+.fallback-banner-title {
+    -fx-text-fill: #fbbf24;
+    -fx-font-size: 11.5px;
+    -fx-font-weight: 900;
+}
+.fallback-banner-text {
+    -fx-text-fill: #fde68a;
+    -fx-font-size: 12.5px;
+}
+.light-mode .fallback-banner {
+    -fx-background-color: #fffbeb;
+    -fx-border-color: #f59e0b;
+}
+.light-mode .fallback-banner-title { -fx-text-fill: #b45309; }
+.light-mode .fallback-banner-text { -fx-text-fill: #92400e; }

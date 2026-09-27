@@ -78,6 +78,7 @@ public class ArticleAnalysisService {
                 placeholder.setConfidence(50);
                 placeholder.setExplanation("Could not verify this claim: " + ex.getMessage());
                 placeholder.setSources(List.of());
+                placeholder.setFallbackReason("Article claim verification failed: " + ex.getMessage());
                 claimResults.add(new ArticleClaimResult(claimText, placeholder));
             }
         }

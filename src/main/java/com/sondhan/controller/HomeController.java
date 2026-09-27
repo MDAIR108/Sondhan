@@ -29,6 +29,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.File;
 import java.io.FileInputStream;
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -78,10 +79,7 @@ public class HomeController {
     @FXML private Label     sourceUrlBadge, sourceUrlLabel;
     @FXML private Label     claimLabel, verdictLabel, confidencePctLabel;
     @FXML private ProgressBar confidenceBar;
-    @FXML private Label     explanationLabel;
     @FXML private VBox      sourcesBox;
-    @FXML private VBox      summaryBox;
-    @FXML private Label     summaryLabel, summaryStatusLabel;
 
     // ── Forensics & Correction Panels ─────────────────────────────────────────
     @FXML private VBox      imageComparisonPanel;
@@ -90,6 +88,16 @@ public class HomeController {
     @FXML private Label     submittedImageMetaLabel, originalImageMetaLabel;
     @FXML private VBox      correctionCard;
     @FXML private Label     correctionLabel;
+
+    // ── Offline-fallback banner (item 5: visible reason whenever offline) ─────
+    @FXML private VBox      fallbackBanner;
+    @FXML private Label     fallbackBannerLabel;
+
+    // ── Verification-unavailable card (retries exhausted: no placeholders) ──
+    @FXML private VBox      unavailableCard;
+    @FXML private Label     unavailableMessageLabel;
+    @FXML private HBox      verdictRow, actionBar;
+    @FXML private VBox      analysisCard, sourcesPanel;
 
     // ── Article Analysis (Feature 3) ──────────────────────────────────────────
     @FXML private VBox      articleAnalysisCard;
@@ -114,9 +122,9 @@ public class HomeController {
         // 2. Model Selector Setup
         modelSelector.setItems(FXCollections.observableArrayList(
             "Auto / Smart Engine",
-            "Google Gemini 1.5 Flash (Free API)",
+            "Google Gemini 3.5 Flash (Free API)",
             "ChatGPT (GPT-4o)",
-            "Claude 3.5 Sonnet"
+            "Claude Sonnet 5"
         ));
         modelSelector.getSelectionModel().select(0);
 
@@ -142,6 +150,9 @@ public class HomeController {
 
         // 6. Apply theme class to ComboBox popup (separate window)
         applyThemeToComboBoxPopup();
+
+        // 7. Resilience: confirm the configured Gemini model still exists (background, best-effort)
+        FactCheckerService.verifyGeminiModelAsync();
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -345,7 +356,7 @@ public class HomeController {
             apiKeyStatusLabel.setText("🟢 Multi-Engine Live (" + keyCount + ")");
             apiKeyStatusLabel.setStyle("-fx-background-color:rgba(16,185,129,0.15);-fx-text-fill:#34d399;-fx-border-color:rgba(16,185,129,0.35);");
         } else if (SessionManager.hasGeminiKey()) {
-            apiKeyStatusLabel.setText("🟢 Gemini 1.5 Live");
+            apiKeyStatusLabel.setText("🟢 Gemini 3.5 Live");
             apiKeyStatusLabel.setStyle("-fx-background-color:rgba(14,165,233,0.18);-fx-text-fill:#38bdf8;-fx-border-color:rgba(14,165,233,0.4);");
         } else if (SessionManager.hasClaudeKey()) {
             apiKeyStatusLabel.setText("🟢 Claude Live");
@@ -522,6 +533,33 @@ public class HomeController {
             articleAnalysisCard.setManaged(false);
         }
 
+        // Unavailable state: show ONLY the unavailable card + action bar.
+        // No verdict/confidence/evidence placeholders are populated in this case.
+        boolean unav = r.isVerificationUnavailable();
+        setSingleSectionsVisible(!unav);
+        if (unavailableCard != null) {
+            if (unav && unavailableMessageLabel != null) {
+                unavailableMessageLabel.setText(r.getUnavailableReason() != null
+                    ? r.getUnavailableReason() : "Verification unavailable — please try again.");
+            }
+            unavailableCard.setVisible(unav);
+            unavailableCard.setManaged(unav);
+        }
+        if (unav) {
+            showResult();
+            return;
+        }
+
+        // 0. Offline-fallback banner (item 5): visible reason whenever offline produced this result
+        if (fallbackBanner != null) {
+            boolean showFallback = r.getFallbackReason() != null && !r.getFallbackReason().isBlank();
+            if (showFallback) {
+                fallbackBannerLabel.setText(r.getFallbackReason());
+            }
+            fallbackBanner.setVisible(showFallback);
+            fallbackBanner.setManaged(showFallback);
+        }
+
         claimLabel.setText(r.getClaim());
 
         // 1. Verdict Badge Styling
@@ -545,10 +583,7 @@ public class HomeController {
         confidenceBar.setProgress(r.getConfidence() / 100.0);
         confidencePctLabel.setText(r.getConfidence() + "%");
 
-        // 3. Factual Explanation
-        explanationLabel.setText(r.getExplanation());
-
-        // 4. Badges (Preloaded & Model Used)
+        // 3. Badges (Preloaded & Model Used)
         preloadedBadge.setVisible(r.isPreloaded());
         preloadedBadge.setManaged(r.isPreloaded());
         modelUsedBadge.setText("Engine: " + (r.getAiModel() != null ? r.getAiModel() : "Sondhan AI"));
@@ -643,21 +678,36 @@ public class HomeController {
         int totalEvidence = supCount + conCount + neuCount;
         if (totalEvidence > 0) {
             sourcesBox.getChildren().add(buildEvidenceBalanceSection(supCount, conCount, neuCount, totalEvidence));
+            if (supCount == 0 && conCount == 0) {
+                // Item 4: neutral-only context — explicit that nothing was evaluated for/against.
+                VBox neuOnly = new VBox(4);
+                neuOnly.getStyleClass().add("fallback-banner");
+                Label neuTitle = new Label("⚠ NO SUPPORTING OR CONTRADICTING EVIDENCE");
+                neuTitle.getStyleClass().add("fallback-banner-title");
+                Label neuText = new Label("No supporting or contradicting evidence was found — "
+                        + neuCount + " background source(s) below are context only. The claim remains unverified.");
+                neuText.getStyleClass().add("fallback-banner-text");
+                neuText.setWrapText(true);
+                neuOnly.getChildren().addAll(neuTitle, neuText);
+                sourcesBox.getChildren().add(neuOnly);
+            }
+        } else {
+            // Item 4: no sources at all → explicit retrieval-failure notice, never a silent gap.
+            VBox noEv = new VBox(4);
+            noEv.getStyleClass().add("fallback-banner");
+            Label noEvTitle = new Label("⚠ NO SOURCES RETRIEVED");
+            noEvTitle.getStyleClass().add("fallback-banner-title");
+            Label noEvText = new Label("No sources could be retrieved or analyzed for this claim. "
+                    + "This is a retrieval failure, not an inconclusive verification.");
+            noEvText.getStyleClass().add("fallback-banner-text");
+            noEvText.setWrapText(true);
+            noEv.getChildren().addAll(noEvTitle, noEvText);
+            sourcesBox.getChildren().add(noEv);
         }
 
         // Feature 2: Claim Timeline section (added to sourcesBox)
         if (r.getTimeline() != null && !r.getTimeline().isEmpty()) {
             sourcesBox.getChildren().add(buildTimelineSection(r.getTimeline()));
-        }
-
-        // 9. 10-Point Summary Generation
-        if (r.getSummary() != null && !r.getSummary().isEmpty()) {
-            summaryLabel.setText(String.join("\n", r.getSummary()));
-            summaryStatusLabel.setText("Complete");
-            summaryBox.setVisible(true);
-            summaryBox.setManaged(true);
-        } else {
-            generateSummaryTask(r);
         }
 
         // 10. Topic 3: Save to SQLite searches table (Background Thread)
@@ -676,10 +726,37 @@ public class HomeController {
      * Displays the full article analysis result: article info, detected claims, and assessment.
      */
     private void displayArticleAnalysis(ArticleAnalysisResult article, String inputType, String originalInput) {
-        // Hide single-result specific panels, show article analysis card
+        // Hide single-result specific panels, show article analysis card.
+        // Also clears any single-result unavailable card and stale single sections.
         if (articleAnalysisCard != null) {
             articleAnalysisCard.setVisible(true);
             articleAnalysisCard.setManaged(true);
+        }
+        if (unavailableCard != null) {
+            unavailableCard.setVisible(false);
+            unavailableCard.setManaged(false);
+        }
+        setSingleSectionsVisible(false);
+
+        // Offline-fallback banner: aggregate reasons across per-claim results
+        if (fallbackBanner != null) {
+            List<String> reasons = new ArrayList<>();
+            if (article.getClaims() != null) {
+                for (ArticleClaimResult cr : article.getClaims()) {
+                    if (cr.getResult() != null && cr.getResult().getFallbackReason() != null
+                            && !cr.getResult().getFallbackReason().isBlank()) {
+                        reasons.add(cr.getResult().getFallbackReason());
+                    }
+                }
+            }
+            boolean showFallback = !reasons.isEmpty();
+            if (showFallback) {
+                int n = article.getClaims() != null ? article.getClaims().size() : 0;
+                fallbackBannerLabel.setText("⚠ Offline fallback for " + reasons.size() + " of " + n
+                        + " claims. First reason: " + reasons.get(0));
+            }
+            fallbackBanner.setVisible(showFallback);
+            fallbackBanner.setManaged(showFallback);
         }
 
         // 1. Article Info Card
@@ -752,7 +829,8 @@ public class HomeController {
 
         // Verdict icon
         String verdict = cr.getVerdict();
-        Label iconLabel = new Label(switch (verdict != null ? verdict.toUpperCase() : "") {
+        boolean claimUnav = cr.getResult() != null && cr.getResult().isVerificationUnavailable();
+        Label iconLabel = new Label(claimUnav ? "⚠" : switch (verdict != null ? verdict.toUpperCase() : "") {
             case "TRUE"                   -> "✅";
             case "FALSE"                  -> "✕";
             case "MISLEADING"             -> "⚠";
@@ -766,17 +844,21 @@ public class HomeController {
         HBox.setHgrow(infoBox, Priority.ALWAYS);
 
         Label claimText = new Label(cr.getDetectedClaim());
-        claimText.setStyle("-fx-text-fill: #F0F6FC; -fx-font-weight: 600; -fx-font-size: 13px;");
+        claimText.getStyleClass().add("card-title");
+        claimText.setStyle("-fx-font-weight: 600; -fx-font-size: 13px;");
         claimText.setWrapText(true);
 
-        Label confLabel = new Label(cr.getConfidence() + "% confidence");
-        confLabel.setStyle("-fx-text-fill: #94A3B8; -fx-font-size: 11px;");
+        Label confLabel = new Label(claimUnav ? "verification unavailable — see details"
+                : cr.getConfidence() + "% confidence");
+        confLabel.getStyleClass().add("text-muted");
+        confLabel.setStyle("-fx-font-size: 11px;");
 
         infoBox.getChildren().addAll(claimText, confLabel);
 
         // Expand indicator
         Label expandLabel = new Label("▶");
-        expandLabel.setStyle("-fx-text-fill: #38BDF8; -fx-font-size: 11px;");
+        expandLabel.getStyleClass().add("src-url");
+        expandLabel.setStyle("-fx-font-size: 11px;");
 
         card.getChildren().addAll(iconLabel, infoBox, expandLabel);
 
@@ -818,7 +900,8 @@ public class HomeController {
      */
     private VBox buildClaimDetailView(ArticleClaimResult cr) {
         VBox detail = new VBox(10);
-        detail.setStyle("-fx-padding: 12 16; -fx-background-color: #060b14; -fx-background-radius: 8; -fx-border-color: rgba(56,189,248,0.15); -fx-border-radius: 8;");
+        detail.getStyleClass().add("claim-detail");
+        detail.setStyle("-fx-padding: 12 16;");
 
         FactCheckResult r = cr.getResult();
         if (r == null) {
@@ -828,20 +911,33 @@ public class HomeController {
             return detail;
         }
 
+        // Unavailable state: reason only — no verdict/confidence/evidence placeholders.
+        if (r.isVerificationUnavailable()) {
+            Label lbl = new Label(r.getUnavailableReason() != null
+                ? r.getUnavailableReason() : "Verification unavailable — please try again.");
+            lbl.getStyleClass().add("fallback-banner-text");
+            lbl.setWrapText(true);
+            detail.getChildren().add(lbl);
+            return detail;
+        }
+
         // Verdict + confidence
         HBox verdictRow = new HBox(10);
         verdictRow.setAlignment(Pos.CENTER_LEFT);
         Label vLabel = new Label(r.getVerdict());
-        vLabel.setStyle("-fx-font-weight: 800; -fx-font-size: 13px; -fx-text-fill: " + getVerdictColor(r.getVerdict()) + ";");
+        vLabel.getStyleClass().add(getVerdictClass(r.getVerdict()));
+        vLabel.setStyle("-fx-font-weight: 800; -fx-font-size: 13px;");
         Label cLabel = new Label(r.getConfidence() + "%");
-        cLabel.setStyle("-fx-text-fill: #38bdf8; -fx-font-weight: 700;");
+        cLabel.getStyleClass().add("src-url");
+        cLabel.setStyle("-fx-font-weight: 700;");
         verdictRow.getChildren().addAll(vLabel, cLabel);
         detail.getChildren().add(verdictRow);
 
         // Explanation
         if (r.getExplanation() != null && !r.getExplanation().isBlank()) {
             Label explLabel = new Label(r.getExplanation());
-            explLabel.setStyle("-fx-text-fill: #cbd5e1; -fx-font-size: 12px;");
+            explLabel.getStyleClass().add("tl-desc");
+            explLabel.setStyle("-fx-font-size: 12px;");
             explLabel.setWrapText(true);
             detail.getChildren().add(explLabel);
         }
@@ -849,7 +945,8 @@ public class HomeController {
         // Correction
         if (r.getCorrection() != null && !r.getCorrection().isBlank()) {
             Label corrLabel = new Label("💡 " + r.getCorrection());
-            corrLabel.setStyle("-fx-text-fill: #34d399; -fx-font-size: 12px;");
+            corrLabel.getStyleClass().add("corr-inline");
+            corrLabel.setStyle("-fx-font-size: 12px;");
             corrLabel.setWrapText(true);
             detail.getChildren().add(corrLabel);
         }
@@ -871,7 +968,8 @@ public class HomeController {
         // Sources
         if (r.getSources() != null && !r.getSources().isEmpty()) {
             Label srcHeader = new Label("📚 SOURCES");
-            srcHeader.setStyle("-fx-font-size: 10px; -fx-font-weight: 700; -fx-text-fill: #94A3B8;");
+            srcHeader.getStyleClass().add("text-muted");
+            srcHeader.setStyle("-fx-font-size: 10px; -fx-font-weight: 700;");
             detail.getChildren().add(srcHeader);
             for (FactCheckResult.Source s : r.getSources()) {
                 HBox srcCard = buildSourceCard(s);
@@ -882,20 +980,33 @@ public class HomeController {
         return detail;
     }
 
-    private String getVerdictColor(String verdict) {
-        if (verdict == null) return "#94a3b8";
+    /** Theme-aware verdict style class (readable in both dark and light themes). */
+    private String getVerdictClass(String verdict) {
+        if (verdict == null) return "v-unv";
         return switch (verdict.toUpperCase()) {
-            case "TRUE"                   -> "#34d399";
-            case "FALSE"                  -> "#f87171";
-            case "MISLEADING"             -> "#fbbf24";
-            case "MODIFIED / OUT OF CONTEXT" -> "#fed7aa";
-            default                        -> "#94a3b8";
+            case "TRUE"                   -> "v-true";
+            case "FALSE"                  -> "v-false";
+            case "MISLEADING"             -> "v-mis";
+            case "MODIFIED / OUT OF CONTEXT" -> "v-mod";
+            default                        -> "v-unv";
         };
     }
 
     private Label buildBreakdownPill(String label, int count, String color) {
+        // In light theme the tinted pill background washes out, so use a darker
+        // text variant; in dark theme keep the bright variant.
+        String textColor = color;
+        if (isLightAccent) {
+            textColor = switch (color) {
+                case "#34d399" -> "#047857";
+                case "#fbbf24" -> "#b45309";
+                case "#f87171" -> "#b91c1c";
+                case "#94a3b8" -> "#475569";
+                default -> color;
+            };
+        }
         Label pill = new Label(label + ": " + count);
-        pill.setStyle("-fx-background-color: " + color + "22; -fx-text-fill: " + color + ";"
+        pill.setStyle("-fx-background-color: " + color + "22; -fx-text-fill: " + textColor + ";"
                 + " -fx-font-size: 11px; -fx-font-weight: 700; -fx-padding: 4 10; -fx-background-radius: 8;");
         return pill;
     }
@@ -952,10 +1063,11 @@ public class HomeController {
                     article.getUrl(), null, null, null, null, null
                 );
 
-                // Save per-claim rows
+                // Save per-claim rows (unavailable claims carry no verdict — skip them)
                 if (searchId > 0 && article.getClaims() != null) {
                     for (ArticleClaimResult cr : article.getClaims()) {
                         FactCheckResult r = cr.getResult();
+                        if (r != null && r.isVerificationUnavailable()) continue;
                         String evidenceJson = "[]";
                         if (r != null && r.getSources() != null) {
                             try {
@@ -989,6 +1101,28 @@ public class HomeController {
     }
 
     /**
+     * Shows/hides the single-result sections (verdict row, analysis, sources).
+     * The action bar stays visible (Verify Another + guarded exports).
+     * Forensics/correction panels keep their own conditional visibility.
+     */
+    private void setSingleSectionsVisible(boolean on) {
+        if (verdictRow != null)    { verdictRow.setVisible(on);    verdictRow.setManaged(on); }
+        if (analysisCard != null)  { analysisCard.setVisible(on);  analysisCard.setManaged(on); }
+        if (sourcesPanel != null)  { sourcesPanel.setVisible(on);  sourcesPanel.setManaged(on); }
+        if (imageComparisonPanel != null && !on) {
+            imageComparisonPanel.setVisible(false); imageComparisonPanel.setManaged(false);
+        }
+        if (correctionCard != null && !on) {
+            correctionCard.setVisible(false); correctionCard.setManaged(false);
+        }
+    }
+
+    /** Manual retry for the unavailable state — inputs persist in the fields. */
+    @FXML private void handleRetry() {
+        handleCheck();
+    }
+
+    /**
      * Feature 1: Builds the Evidence Balance section with three proportional horizontal bars.
      */
     private VBox buildEvidenceBalanceSection(int supCount, int conCount, int neuCount, int total) {
@@ -996,7 +1130,8 @@ public class HomeController {
         section.setStyle("-fx-padding: 18 0 6 0;");
 
         Label header = new Label("⚖️ EVIDENCE BALANCE");
-        header.setStyle("-fx-font-size: 11px; -fx-font-weight: 700; -fx-text-fill: #94A3B8; -fx-letter-spacing: 1px;");
+        header.getStyleClass().add("text-muted");
+        header.setStyle("-fx-font-size: 11px; -fx-font-weight: 700; -fx-letter-spacing: 1px;");
 
         section.getChildren().add(header);
         section.getChildren().add(buildEvidenceBar("✅ Supporting",    supCount, total, "#10B981", "#064E3B"));
@@ -1011,7 +1146,8 @@ public class HomeController {
         row.setAlignment(Pos.CENTER_LEFT);
 
         Label nameLabel = new Label(label);
-        nameLabel.setStyle("-fx-text-fill: #CBD5E1; -fx-font-size: 12px; -fx-min-width: 140px;");
+        nameLabel.getStyleClass().add("ev-label");
+        nameLabel.setStyle("-fx-font-size: 12px; -fx-min-width: 140px;");
 
         HBox trackBg = new HBox();
         trackBg.setStyle("-fx-background-color: " + bgColor + "; -fx-background-radius: 4; -fx-min-height: 10; -fx-min-width: 200px;");
@@ -1024,7 +1160,8 @@ public class HomeController {
         trackBg.getChildren().add(fill);
 
         Label countLabel = new Label(count + " source" + (count != 1 ? "s" : ""));
-        countLabel.setStyle("-fx-text-fill: #64748B; -fx-font-size: 11px;");
+        countLabel.getStyleClass().add("ev-count");
+        countLabel.setStyle("-fx-font-size: 11px;");
 
         row.getChildren().addAll(nameLabel, trackBg, countLabel);
         return row;
@@ -1038,7 +1175,8 @@ public class HomeController {
         section.setStyle("-fx-padding: 18 0 0 0;");
 
         Label header = new Label("🕐 CLAIM TIMELINE");
-        header.setStyle("-fx-font-size: 11px; -fx-font-weight: 700; -fx-text-fill: #94A3B8; -fx-letter-spacing: 1px; -fx-padding: 0 0 12 0;");
+        header.getStyleClass().add("text-muted");
+        header.setStyle("-fx-font-size: 11px; -fx-font-weight: 700; -fx-letter-spacing: 1px; -fx-padding: 0 0 12 0;");
         section.getChildren().add(header);
 
         for (int i = 0; i < events.size(); i++) {
@@ -1076,21 +1214,25 @@ public class HomeController {
         content.setStyle("-fx-padding: 0 0 16 0;");
 
         Label dateLabel = new Label(ev.date != null ? ev.date : "");
-        dateLabel.setStyle("-fx-text-fill: #14B8A6; -fx-font-size: 11px; -fx-font-weight: 700;");
+        dateLabel.getStyleClass().add("src-url");
+        dateLabel.setStyle("-fx-font-size: 11px; -fx-font-weight: 700;");
 
         Label titleLabel = new Label(ev.title != null ? ev.title : "");
-        titleLabel.setStyle("-fx-text-fill: #F0F6FC; -fx-font-size: 13px; -fx-font-weight: 600;");
+        titleLabel.getStyleClass().add("card-title");
+        titleLabel.setStyle("-fx-font-size: 13px; -fx-font-weight: 600;");
         titleLabel.setWrapText(true);
 
         Label descLabel = new Label(ev.description != null ? ev.description : "");
-        descLabel.setStyle("-fx-text-fill: #94A3B8; -fx-font-size: 12px;");
+        descLabel.getStyleClass().add("tl-desc");
+        descLabel.setStyle("-fx-font-size: 12px;");
         descLabel.setWrapText(true);
 
         content.getChildren().addAll(dateLabel, titleLabel, descLabel);
 
         if (ev.source != null && !ev.source.isBlank()) {
             Label srcLabel = new Label("📄 " + ev.source);
-            srcLabel.setStyle("-fx-text-fill: #64748B; -fx-font-size: 11px; -fx-font-style: italic;");
+            srcLabel.getStyleClass().add("ev-count");
+            srcLabel.setStyle("-fx-font-size: 11px; -fx-font-style: italic;");
             content.getChildren().add(srcLabel);
         }
 
@@ -1138,11 +1280,13 @@ public class HomeController {
         HBox.setHgrow(infoBox, Priority.ALWAYS);
 
         Label titleLabel = new Label(s.title != null ? s.title : "Document Reference");
-        titleLabel.setStyle("-fx-text-fill: #F0F6FC; -fx-font-weight: 700; -fx-font-size: 13.5px;");
+        titleLabel.getStyleClass().add("card-title");
+        titleLabel.setStyle("-fx-font-weight: 700; -fx-font-size: 13.5px;");
         titleLabel.setWrapText(true);
 
         Label urlLabel = new Label(s.url != null ? s.url : "");
-        urlLabel.setStyle("-fx-text-fill: #14B8A6; -fx-font-size: 11px; -fx-font-family: monospace;");
+        urlLabel.getStyleClass().add("src-url");
+        urlLabel.setStyle("-fx-font-size: 11px; -fx-font-family: monospace;");
         urlLabel.setWrapText(true);
 
         infoBox.getChildren().addAll(titleLabel, urlLabel);
@@ -1201,34 +1345,13 @@ public class HomeController {
         } catch (Exception ignored) {}
     }
 
-    private void generateSummaryTask(FactCheckResult r) {
-        summaryLabel.setText("Synthesizing 10-point executive brief...");
-        summaryStatusLabel.setText("In Progress");
-        summaryBox.setVisible(true);
-        summaryBox.setManaged(true);
-
-        Task<String> sumTask = new Task<>() {
-            @Override protected String call() throws Exception {
-                String model = modelSelector.getSelectionModel().getSelectedItem();
-                return FactCheckerService.generateSummary(model, r.getClaim(), r.getVerdict(), r.getExplanation(), r.getSources());
-            }
-        };
-        sumTask.setOnSucceeded(e -> Platform.runLater(() -> {
-            summaryLabel.setText(sumTask.getValue());
-            summaryStatusLabel.setText("Complete");
-        }));
-        sumTask.setOnFailed(e -> Platform.runLater(() -> {
-            summaryLabel.setText("1. Claim: " + r.getClaim() + "\n2. Verdict: " + r.getVerdict() + "\n3. " + r.getExplanation());
-            summaryStatusLabel.setText("Standard Brief");
-        }));
-        FactCheckerService.getExecutor().submit(sumTask);
-    }
-
     /**
      * Topic 3: Asynchronously persists fact-check results into SQLite searches table.
      * Extended with evidence JSON blobs and timeline (Features 1, 2).
      */
     private void saveSearchToDatabase(FactCheckResult r, String type, String orig) {
+        // Unavailable results carry no verdict — never archive placeholders.
+        if (r.isVerificationUnavailable()) return;
         int uid = SessionManager.getCurrentUser().getId();
         ObjectMapper mapper = new ObjectMapper();
 
@@ -1310,6 +1433,10 @@ public class HomeController {
     // ═════════════════════════════════════════════════════════════════════════
 
     @FXML private void handleCopyReport() {
+        if (currentArticleResult == null && isCurrentResultUnavailable()) {
+            alert("Report Unavailable", "Verification did not complete — press \"Retry now\" and export after a successful check.");
+            return;
+        }
         String report;
         if (currentArticleResult != null) {
             report = com.sondhan.service.ReportGeneratorService.generateArticleReport(
@@ -1335,6 +1462,10 @@ public class HomeController {
     }
 
     @FXML private void handleExportReportFile() {
+        if (currentArticleResult == null && isCurrentResultUnavailable()) {
+            alert("Report Unavailable", "Verification did not complete — press \"Retry now\" and export after a successful check.");
+            return;
+        }
         String report;
         if (currentArticleResult != null) {
             report = com.sondhan.service.ReportGeneratorService.generateArticleReport(
@@ -1372,6 +1503,10 @@ public class HomeController {
 
     /** Feature 5: Export the current result as a structured JSON file. */
     @FXML private void handleExportJson() {
+        if (currentArticleResult == null && isCurrentResultUnavailable()) {
+            alert("Report Unavailable", "Verification did not complete — press \"Retry now\" and export after a successful check.");
+            return;
+        }
         String json;
         if (currentArticleResult != null) {
             json = com.sondhan.service.ReportGeneratorService.exportArticleJson(currentArticleResult);
@@ -1403,6 +1538,11 @@ public class HomeController {
     }
 
     private boolean isLightAccent = false;
+
+    /** True when the single-result view is showing the unavailable state. */
+    private boolean isCurrentResultUnavailable() {
+        return currentResult != null && currentResult.isVerificationUnavailable();
+    }
 
     @FXML private void handleToggleTheme() {
         isLightAccent = !isLightAccent;

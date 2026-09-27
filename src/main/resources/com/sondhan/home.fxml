@@ -219,8 +219,25 @@
                     <!-- Result View -->
                     <VBox fx:id="resultPanel" spacing="16.0" visible="false" managed="false">
 
+                        <!-- Offline-fallback banner (shown with reason whenever offline engine produced the result) -->
+                        <VBox fx:id="fallbackBanner" styleClass="fallback-banner" spacing="4.0" visible="false" managed="false">
+                            <Label text="⚠ OFFLINE FALLBACK MODE" styleClass="fallback-banner-title"/>
+                            <Label fx:id="fallbackBannerLabel" wrapText="true" styleClass="fallback-banner-text"/>
+                        </VBox>
+
+                        <!-- Verification-unavailable card (live retries exhausted: no placeholders shown) -->
+                        <VBox fx:id="unavailableCard" styleClass="fallback-banner" spacing="8.0" visible="false" managed="false">
+                            <padding><Insets top="18" right="20" bottom="18" left="20"/></padding>
+                            <Label text="⚠ VERIFICATION UNAVAILABLE" styleClass="fallback-banner-title" style="-fx-font-size:15px;"/>
+                            <Label fx:id="unavailableMessageLabel" wrapText="true" styleClass="fallback-banner-text"/>
+                            <HBox alignment="CENTER_LEFT" spacing="12.0">
+                                <Button text="↻ Retry now" styleClass="btn-primary" onAction="#handleRetry"/>
+                                <Button text="Verify Another" styleClass="btn-secondary" onAction="#handleResetView"/>
+                            </HBox>
+                        </VBox>
+
                         <!-- Verdict Row -->
-                        <HBox styleClass="panel" spacing="22.0" alignment="CENTER_LEFT">
+                        <HBox fx:id="verdictRow" styleClass="panel" spacing="22.0" alignment="CENTER_LEFT">
                             <padding><Insets top="18" right="22" bottom="18" left="22"/></padding>
 
                             <VBox spacing="5.0" alignment="CENTER_LEFT">
@@ -291,7 +308,7 @@
                         </VBox>
 
                         <!-- Analysis Card -->
-                        <VBox styleClass="panel" spacing="14.0">
+                        <VBox fx:id="analysisCard" styleClass="panel" spacing="14.0">
                             <padding><Insets top="18" right="22" bottom="18" left="22"/></padding>
 
                             <VBox styleClass="claim-card" spacing="5.0">
@@ -303,25 +320,10 @@
                                 <Label fx:id="claimLabel" styleClass="claim-text" wrapText="true"/>
                                 <Label fx:id="sourceUrlLabel" styleClass="text-muted" wrapText="true" visible="false" managed="false"/>
                             </VBox>
-
-                            <VBox styleClass="explanation-card" spacing="7.0">
-                                <Label text="FACTUAL ANALYSIS" styleClass="section-label"/>
-                                <Label fx:id="explanationLabel" wrapText="true" styleClass="explanation-text"/>
-                            </VBox>
-
-                            <!-- 10-Point Summary -->
-                            <VBox styleClass="summary-container" spacing="9.0" fx:id="summaryBox">
-                                <HBox alignment="CENTER_LEFT" spacing="8.0">
-                                    <Label text="10-POINT FACT SUMMARY" styleClass="section-label"/>
-                                    <Region HBox.hgrow="ALWAYS"/>
-                                    <Label fx:id="summaryStatusLabel" text="Generated" styleClass="text-muted"/>
-                                </HBox>
-                                <Label fx:id="summaryLabel" wrapText="true" styleClass="summary-item-text"/>
-                            </VBox>
                         </VBox>
 
                         <!-- Sources Panel -->
-                        <VBox styleClass="sources-container" spacing="14.0">
+                        <VBox fx:id="sourcesPanel" styleClass="sources-container" spacing="14.0">
                             <HBox alignment="CENTER_LEFT" spacing="12.0">
                                 <Label text="VERIFIED SOURCES  —  Click any source to open original article in browser"
                                        styleClass="section-label" style="-fx-font-size:12px;"/>
@@ -370,7 +372,7 @@
                         </VBox>
 
                         <!-- Action Bar -->
-                        <HBox alignment="CENTER_RIGHT" spacing="12.0">
+                        <HBox fx:id="actionBar" alignment="CENTER_RIGHT" spacing="12.0">
                             <Button text="📋 Copy Report" styleClass="btn-secondary" onAction="#handleCopyReport"/>
                             <Button text="💾 Save Report (.md)" styleClass="btn-secondary" onAction="#handleExportReportFile"/>
                             <Button text="📤 Export JSON" styleClass="btn-secondary" onAction="#handleExportJson"/>

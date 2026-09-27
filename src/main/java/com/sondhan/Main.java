@@ -25,6 +25,8 @@ public class Main extends Application {
         } catch (Exception e) {
             System.err.println("[DB Error] " + e.getMessage());
         }
+        // Runtime key loading (env vars) before any UI is shown.
+        com.sondhan.service.SessionManager.initFromEnv();
         navigateTo("login.fxml", 980, 700);
         stage.setTitle("Sondhan — Fact Verification Platform");
         stage.setMinWidth(900);

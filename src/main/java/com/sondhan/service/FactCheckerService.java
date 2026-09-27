@@ -49,13 +49,23 @@ import java.util.concurrent.Executors;
 public class FactCheckerService {
 
     // ── Google Gemini Endpoints (Google AI Studio – Free Tier API) ───────────
-    private static final String GEMINI_MODEL    = "gemini-1.5-flash";
-    private static final String GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/" + GEMINI_MODEL + ":generateContent?key=";
+    // NOTE: Google shut down all 1.x/1.5 models (HTTP 404 for any request) —
+    // never chain back to them. gemini-3.5-flash was chosen over
+    // gemini-3.1-flash-lite because it is the cheapest Stable model with
+    // documented Google Search grounding support, which the time-sensitive
+    // verification path requires. The fallback model is the cheapest
+    // grounding-capable model for overload spillover.
+    // Re-check https://ai.google.dev/gemini-api/docs/models periodically —
+    // hardcoded model names break again when Google deprecates them.
+    private static final String GEMINI_MODEL          = "gemini-3.5-flash";
+    private static final String GEMINI_FALLBACK_MODEL = "gemini-3.5-flash-lite";
+    private static final String GEMINI_URL_PREFIX     = "https://generativelanguage.googleapis.com/v1beta/models/";
 
     // ── Claude Endpoints (Anthropic) ──────────────────────────────────────────
+    // claude-sonnet-5 is the current speed/intelligence model (4.x is legacy).
     private static final String CLAUDE_URL   = "https://api.anthropic.com/v1/messages";
     private static final String CLAUDE_VER   = "2023-06-01";
-    private static final String CLAUDE_MODEL = "claude-sonnet-4-5";
+    private static final String CLAUDE_MODEL = "claude-sonnet-5";
 
     // ── OpenAI Endpoints (ChatGPT) ────────────────────────────────────────────
     private static final String OPENAI_URL   = "https://api.openai.com/v1/chat/completions";
@@ -79,6 +89,31 @@ public class FactCheckerService {
 
     public static ExecutorService getExecutor() { return EXECUTOR; }
 
+    /**
+     * Last live-engine failure on this worker thread (for the offline-fallback
+     * reason shown in logs + UI banner). Recorded in every live catch block,
+     * consumed when the offline engine takes over. Cleared at each entry point
+     * so stale errors never leak across verifications sharing a pool thread.
+     */
+    private static final ThreadLocal<String> LAST_LIVE_ERROR = new ThreadLocal<>();
+
+    static void noteLiveFailure(String engine, Throwable ex) {
+        String detail;
+        try {
+            detail = geminiErrorDetail(ex); // shared "(STATUS)" + error.message shape
+        } catch (Exception ignored) {
+            detail = String.valueOf(ex != null ? ex.getMessage() : "unknown error");
+        }
+        if (detail.length() > 300) detail = detail.substring(0, 300) + "...";
+        LAST_LIVE_ERROR.set(engine + ": " + detail);
+    }
+
+    static String takeLiveFailure() {
+        String v = LAST_LIVE_ERROR.get();
+        LAST_LIVE_ERROR.remove();
+        return v;
+    }
+
     // ── Shared System Instructions for Live AI ────────────────────────────────
     private static final String SYSTEM_PROMPT =
         "You are Sondhani, an expert academic fact-checking AI. " +
@@ -90,6 +125,9 @@ public class FactCheckerService {
         "Classify each source into exactly ONE of three arrays: supporting_evidence (corroborates claim), contradicting_evidence (refutes claim), neutral_evidence (background context). " +
         "For the timeline array: ONLY include entries with a verifiable source. If you cannot cite a source, omit that entry entirely rather than fabricating one. " +
         "Categorize each source type as: 'newspaper', 'book', 'journal', or 'government'. " +
+        "TIME-SENSITIVITY RULE: if the claim concerns a current office-holder, an ongoing event, or a recent statistic, " +
+        "answer UNVERIFIED with an explanation that the current status cannot be confirmed without live sources — " +
+        "never assert a confident verdict on such claims from training data alone. " +
         "Always respond ONLY with valid raw JSON (no markdown fences, no explanatory text).";
 
     private static final String SCHEMA =
@@ -115,22 +153,19 @@ public class FactCheckerService {
      * Otherwise, it seamlessly uses the built-in knowledge verification engine.
      */
     public static FactCheckResult checkTextClaim(String model, String claim) throws Exception {
+        LAST_LIVE_ERROR.remove();
         boolean useGemini  = model != null && (model.contains("Gemini") || "Auto / Smart Engine".equalsIgnoreCase(model) && SessionManager.hasGeminiKey());
         boolean useChatGPT = "ChatGPT".equalsIgnoreCase(model) || (model != null && model.contains("ChatGPT"));
         boolean useClaude  = "Claude".equalsIgnoreCase(model) || (model != null && model.contains("Claude"));
+        System.err.println("[Route] text claim via model=\"" + model + "\" keys(gemini/chatgpt/claude)="
+            + SessionManager.hasGeminiKey() + "/" + SessionManager.hasOpenAiKey() + "/" + SessionManager.hasClaudeKey());
 
-        // 1. Try Live Google Gemini if key exists
+        // 1. Try Live Google Gemini if key exists (primary → grounding retry → fallback model)
         if (useGemini && SessionManager.hasGeminiKey()) {
-            try {
-                String prompt = "Fact-check this claim: \"" + claim + "\"\n\nReturn ONLY this JSON:\n" + SCHEMA;
-                String raw = postGemini(SessionManager.getGeminiKey(), buildGeminiTextBody(prompt));
-                FactCheckResult r = parseGeminiResponse(raw, claim);
-                r.setAiModel("Google Gemini 1.5 Flash [Live API]");
-                r.setInputType("text");
-                return r;
-            } catch (Exception ex) {
-                System.err.println("[API Error Gemini] " + ex.getMessage() + ". Falling back to next engine.");
-            }
+            String prompt = "Fact-check this claim: \"" + claim + "\"\n\nReturn ONLY this JSON:\n" + SCHEMA;
+            boolean wantGrounding = isTimeSensitiveClaim(claim);
+            FactCheckResult gr = geminiTextChain(SessionManager.getGeminiKey(), prompt, claim, wantGrounding);
+            if (gr != null) return gr;
         }
 
         // 2. Try Live OpenAI ChatGPT if key exists
@@ -141,8 +176,10 @@ public class FactCheckerService {
                 FactCheckResult r = parseOpenAIResponse(raw, claim);
                 r.setAiModel("ChatGPT (GPT-4o) [Live API]");
                 r.setInputType("text");
-                return r;
+                return postProcessLiveResult(r, claim, "chatgpt", false);
             } catch (Exception ex) {
+                noteLiveFailure("chatgpt", ex);
+                if (isAuthFailure(ex)) throw new RuntimeException("Engine error — ChatGPT rejected the API key. Check Settings.", ex);
                 System.err.println("[API Error ChatGPT] " + ex.getMessage() + ". Falling back to next engine.");
             }
         }
@@ -153,10 +190,12 @@ public class FactCheckerService {
                 String prompt = "Fact-check this claim: \"" + claim + "\"\n\nReturn ONLY this JSON:\n" + SCHEMA;
                 String raw = postClaude(SessionManager.getClaudeKey(), buildClaudeTextBody(prompt));
                 FactCheckResult r = parseClaudeResponse(raw, claim);
-                r.setAiModel("Claude 3.5/4.5 Sonnet [Live API]");
+                r.setAiModel("Claude Sonnet 5 [Live API]");
                 r.setInputType("text");
-                return r;
+                return postProcessLiveResult(r, claim, "claude", false);
             } catch (Exception ex) {
+                noteLiveFailure("claude", ex);
+                if (isAuthFailure(ex)) throw new RuntimeException("Engine error — Claude rejected the API key. Check Settings.", ex);
                 System.err.println("[API Error Claude] " + ex.getMessage() + ". Falling back to Intelligent Engine.");
             }
         }
@@ -164,9 +203,252 @@ public class FactCheckerService {
         // 4. Fallback / Free Mode: Intelligent Built-in Knowledge Engine
         // (Topic 2: Simulate slight network latency so threading & progress UI are visible)
         Thread.sleep(800);
+        String liveErr = takeLiveFailure();
+        if (liveErr != null && isTransientFailure(liveErr)) {
+            // Live was attempted and failed transiently AFTER retries: do not
+            // degrade into a placeholder offline verdict — surface unavailable.
+            System.err.println("[Fallback] text claim: live engines failed transiently after retries — returning UNAVAILABLE state.");
+            return unavailableResult(claim, "text", liveErr);
+        }
         FactCheckResult r = evaluateClaimOffline(claim);
         r.setInputType("text");
+        SourceRetrievalService.verifyAndEnrich(r);
+        if (liveErr != null) {
+            r.setFallbackReason("Live verification failed (" + liveErr + ") — offline engine used instead.");
+            System.err.println("[Fallback] text claim offline after live failure: " + liveErr);
+        } else {
+            r.setFallbackReason("No Live AI API key configured — offline knowledge engine used.");
+            System.err.println("[Fallback] text claim offline: no Live AI key configured.");
+        }
         return r;
+    }
+
+    /** Auth failures must surface visibly — never masquerade as an UNVERIFIED verdict. */
+    private static boolean isAuthFailure(Throwable ex) {
+        if (ex == null) return false;
+        String m = String.valueOf(ex.getMessage());
+        return m.contains("401") || m.contains("403") || m.contains("API_KEY_INVALID")
+            || m.contains("invalid_api_key") || m.contains("UNAUTHENTICATED")
+            || m.toLowerCase().contains("api key not valid");
+    }
+
+    /**
+     * Classifies a Gemini failure from its HTTP status + JSON error body.
+     * Returns KEY (bad key), CONFIG (project/model misconfiguration),
+     * GROUNDING (grounding/tool rejected — retryable as a plain call), or OTHER.
+     */
+    public static String classifyGeminiError(Throwable ex) {
+        if (ex == null) return "OTHER";
+        String l = String.valueOf(ex.getMessage()).toLowerCase();
+        if (l.contains("api_key_invalid") || l.contains("api key not valid") || l.contains("unauthenticated")
+            || l.contains("(401)") || l.contains("invalid_api_key")) return "KEY";
+        if (l.contains("service_disabled") || l.contains("has not been used") || l.contains("is disabled")
+            || l.contains("not_found") || l.contains("is not found") || l.contains("(404)")) return "CONFIG";
+        if (l.contains("google_search") || l.contains("grounding")) return "GROUNDING";
+        if (l.contains("permission_denied") || l.contains("(403)")) return "GROUNDING";
+        if ((l.contains("invalid_argument") || l.contains("(400)")) && l.contains("tool")) return "GROUNDING";
+        if (l.contains("(429)") || l.contains("resource_exhausted") || l.contains("rate limit")
+            || l.contains("rate_limit") || l.contains("quota exceeded") || l.contains("quota_exceeded")) return "RATE_LIMITED";
+        return "OTHER";
+    }
+
+    /**
+     * Extracts a concise "HTTP {status} {error.status}: {error.message}" summary
+     * from a Gemini failure. The FULL raw body is logged by the caller.
+     */
+    public static String geminiErrorDetail(Throwable ex) {
+        if (ex == null) return "unknown error";
+        String m = String.valueOf(ex.getMessage());
+        String status = "?";
+        int p1 = m.indexOf('('), p2 = m.indexOf(')');
+        if (p1 >= 0 && p2 > p1) {
+            String cand = m.substring(p1 + 1, p2).trim();
+            if (cand.matches("\\d{3}")) status = cand;
+        }
+        String gStatus = "", gMsg = "";
+        int b = m.indexOf('{');
+        if (b >= 0) {
+            try {
+                JsonNode err = MAPPER.readTree(m.substring(b)).path("error");
+                gStatus = err.path("status").asText("");
+                gMsg = err.path("message").asText("");
+            } catch (Exception ignored) {}
+        }
+        StringBuilder d = new StringBuilder("HTTP ").append(status);
+        if (!gStatus.isEmpty()) d.append(' ').append(gStatus);
+        if (!gMsg.isEmpty()) d.append(": ").append(gMsg.length() > 300 ? gMsg.substring(0, 300) + "..." : gMsg);
+        else if (b < 0) d.append(": ").append(m.length() > 200 ? m.substring(0, 200) + "..." : m);
+        return d.toString();
+    }
+
+    /**
+     * Handles a Gemini failure: logs the FULL raw response, then either throws a
+     * distinct user-facing error (bad key / project misconfiguration) or falls
+     * through to the next engine for transient problems.
+     */
+    private static void handleGeminiFailure(Exception ex) {
+        noteLiveFailure("gemini", ex); // recorded for the offline-fallback reason + UI banner
+        System.err.println("[API Error Gemini] " + ex.getMessage());
+        String kind = classifyGeminiError(ex);
+        String detail = geminiErrorDetail(ex);
+        if ("KEY".equals(kind)) {
+            throw new RuntimeException("Engine error — Gemini API key rejected (" + detail + "). Please re-enter your API key in Settings.", ex);
+        }
+        if ("CONFIG".equals(kind)) {
+            throw new RuntimeException("Engine error — Google Cloud project issue (" + detail + "). This is a project configuration problem (API disabled or model not accessible), not something fixable by re-typing the key.", ex);
+        }
+        if ("RATE_LIMITED".equals(kind)) {
+            System.err.println("[API Error Gemini] RATE LIMITED (" + detail + ") — free tier quota hit. Falling back to offline engine; retry in a minute.");
+            return;
+        }
+        System.err.println("[API Error Gemini] (" + detail + ") Falling back to next engine.");
+    }
+
+    /** Single grounded-or-plain Gemini text call with quality gates applied. Null = fall through. */
+    private static FactCheckResult geminiTextCall(String key, String prompt, String claim, boolean grounding, String model) throws Exception {
+        String raw = postGemini(key, buildGeminiTextBody(prompt, grounding), model);
+        FactCheckResult r = parseGeminiResponse(raw, claim);
+        r.setAiModel("Google Gemini (" + model + ") [Live API]");
+        r.setInputType("text");
+        return postProcessLiveResult(r, claim, "gemini", r.isGrounded());
+    }
+
+    /** Single grounded-or-plain Gemini vision call with quality gates applied. Null = fall through. */
+    private static FactCheckResult geminiImageCall(String key, String prompt, String b64, String mime, File imageFile, boolean grounding, String model) throws Exception {
+        String raw = postGemini(key, buildGeminiImageBody(prompt, b64, mime, grounding), model);
+        FactCheckResult r = parseGeminiResponse(raw, "Claim from " + imageFile.getName());
+        r.setAiModel("Google Gemini (" + model + ") Vision [Live API]");
+        r.setInputType("image");
+        return postProcessLiveResult(r, liveImageBasis(r, imageFile), "gemini", r.isGrounded());
+    }
+
+    /**
+     * Gemini text chain: primary model → grounding-plain retry → fallback model.
+     * Returns null when every attempt is exhausted without a fatal error, so the
+     * caller falls through to the next engine. Fatal KEY/CONFIG errors throw.
+     * (Never chains to 1.x models — Google shut them down; they only 404.)
+     */
+    private static FactCheckResult geminiTextChain(String key, String prompt, String claim, boolean wantGrounding) throws Exception {
+        try {
+            return geminiTextCall(key, prompt, claim, wantGrounding, GEMINI_MODEL);
+        } catch (Exception ex) {
+            if (wantGrounding && "GROUNDING".equals(classifyGeminiError(ex))) {
+                // Graceful fallback: grounding was rejected — retry once as a plain call.
+                System.err.println("[API] Gemini grounding rejected (" + geminiErrorDetail(ex) + "); retrying as plain call...");
+                try {
+                    return geminiTextCall(key, prompt, claim, false, GEMINI_MODEL);
+                } catch (Exception retryEx) {
+                    ex = retryEx;
+                }
+            }
+            String kind = classifyGeminiError(ex);
+            if (!"KEY".equals(kind) && !"CONFIG".equals(kind)) {
+                System.err.println("[API] Gemini primary (" + GEMINI_MODEL + ") failed (" + geminiErrorDetail(ex)
+                    + "); trying fallback model " + GEMINI_FALLBACK_MODEL + "...");
+                try {
+                    return geminiTextCall(key, prompt, claim, false, GEMINI_FALLBACK_MODEL);
+                } catch (Exception fbEx) {
+                    System.err.println("[API] Gemini fallback model failed: " + geminiErrorDetail(fbEx));
+                    handleGeminiFailure(fbEx);
+                    return null;
+                }
+            }
+            handleGeminiFailure(ex);
+            return null;
+        }
+    }
+
+    /**
+     * Gemini vision chain: same policy as the text chain.
+     */
+    private static FactCheckResult geminiImageChain(String key, String prompt, String b64, String mime, File imageFile, boolean wantGrounding) throws Exception {
+        try {
+            return geminiImageCall(key, prompt, b64, mime, imageFile, wantGrounding, GEMINI_MODEL);
+        } catch (Exception ex) {
+            if (wantGrounding && "GROUNDING".equals(classifyGeminiError(ex))) {
+                System.err.println("[API] Gemini grounding rejected (" + geminiErrorDetail(ex) + "); retrying as plain call...");
+                try {
+                    return geminiImageCall(key, prompt, b64, mime, imageFile, false, GEMINI_MODEL);
+                } catch (Exception retryEx) {
+                    ex = retryEx;
+                }
+            }
+            String kind = classifyGeminiError(ex);
+            if (!"KEY".equals(kind) && !"CONFIG".equals(kind)) {
+                System.err.println("[API] Gemini primary (" + GEMINI_MODEL + ") failed (" + geminiErrorDetail(ex)
+                    + "); trying fallback model " + GEMINI_FALLBACK_MODEL + "...");
+                try {
+                    return geminiImageCall(key, prompt, b64, mime, imageFile, false, GEMINI_FALLBACK_MODEL);
+                } catch (Exception fbEx) {
+                    System.err.println("[API] Gemini fallback model failed: " + geminiErrorDetail(fbEx));
+                    handleGeminiFailure(fbEx);
+                    return null;
+                }
+            }
+            handleGeminiFailure(ex);
+            return null;
+        }
+    }
+
+    // ── Model availability guard (resilience vs. silent Google deprecations) ──
+
+    /**
+     * Parses a ListModels response body into model names ("models/xxx").
+     * Pure function — unit-testable without a key or network.
+     */
+    public static List<String> parseModelList(String json) {
+        List<String> names = new ArrayList<>();
+        if (json == null || json.isBlank()) return names;
+        try {
+            JsonNode arr = MAPPER.readTree(json).path("models");
+            if (arr.isArray()) {
+                for (JsonNode m : arr) {
+                    String n = m.path("name").asText("");
+                    if (!n.isBlank()) names.add(n);
+                }
+            }
+        } catch (Exception ignored) {}
+        return names;
+    }
+
+    /**
+     * One-shot background check at startup: asks Google which models exist and
+     * warns loudly if the configured GEMINI_MODEL is gone — so the next
+     * deprecation surfaces as a clear warning instead of a confusing 404 that
+     * looks like a key/config problem. Best-effort: never blocks, never throws,
+     * skipped entirely when no Gemini key is configured.
+     */
+    public static void verifyGeminiModelAsync() {
+        if (!SessionManager.hasGeminiKey()) return;
+        Thread t = new Thread(() -> {
+            try {
+                HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create("https://generativelanguage.googleapis.com/v1beta/models?key=" + SessionManager.getGeminiKey()))
+                    .header("Content-Type", "application/json")
+                    .timeout(Duration.ofSeconds(15))
+                    .GET()
+                    .build();
+                HttpResponse<String> resp = HTTP.send(req, HttpResponse.BodyHandlers.ofString());
+                if (resp.statusCode() != 200) {
+                    System.err.println("[ModelCheck] ListModels HTTP " + resp.statusCode() + " — cannot confirm model availability.");
+                    return;
+                }
+                List<String> names = parseModelList(resp.body());
+                String want = "models/" + GEMINI_MODEL;
+                if (names.isEmpty()) {
+                    System.err.println("[ModelCheck] ListModels returned no models — cannot confirm " + want + ".");
+                } else if (!names.contains(want)) {
+                    System.err.println("[ModelCheck] WARNING: configured model " + want + " is NOT in Google's model list "
+                        + "(" + names.size() + " models). It may have been deprecated — update GEMINI_MODEL. List: " + names);
+                } else {
+                    System.err.println("[ModelCheck] Configured model " + want + " confirmed available (" + names.size() + " models listed).");
+                }
+            } catch (Exception ex) {
+                System.err.println("[ModelCheck] Skipped (no network?): " + ex.getMessage());
+            }
+        }, "sondhan-model-check");
+        t.setDaemon(true);
+        t.start();
     }
 
     /**
@@ -176,17 +458,22 @@ public class FactCheckerService {
      * Otherwise, evaluates based on image metadata & preloaded facts.
      */
     public static FactCheckResult checkImageClaim(String model, File imageFile) throws Exception {
+        LAST_LIVE_ERROR.remove();
         // 1. Check Preloaded Hash Database first (instant match or visual perceptual match)
         FactCheckResult pre = PreloadedDatabase.getInstance().matchPerceptual(imageFile);
         if (pre != null) {
             Thread.sleep(600); // Visual feedback
-            pre.setInputType("image");
-            return pre;
+            FactCheckResult hit = pre.copy(); // never mutate the shared cache entry
+            hit.setInputType("image");
+            SourceRetrievalService.verifyAndEnrich(hit);
+            System.err.println("[Engine] image claim served from preloaded archive (no live call needed).");
+            return hit;
         }
 
         boolean useGemini  = model != null && (model.contains("Gemini") || "Auto / Smart Engine".equalsIgnoreCase(model) && SessionManager.hasGeminiKey());
         boolean useChatGPT = "ChatGPT".equalsIgnoreCase(model) || (model != null && model.contains("ChatGPT"));
         boolean useClaude  = "Claude".equalsIgnoreCase(model) || (model != null && model.contains("Claude"));
+        System.err.println("[Route] image claim via model=\"" + model + "\" file=" + imageFile.getName());
 
         byte[] bytes = Files.readAllBytes(imageFile.toPath());
         String b64   = Base64.getEncoder().encodeToString(bytes);
@@ -195,17 +482,11 @@ public class FactCheckerService {
         String prompt = "Extract the main claim or headline visible in this image and fact-check it.\n" +
                         "Return ONLY this JSON:\n" + SCHEMA;
 
-        // 2. Live Google Gemini Vision API
+        // 2. Live Google Gemini Vision API (primary → grounding retry → fallback model)
         if (useGemini && SessionManager.hasGeminiKey()) {
-            try {
-                String raw = postGemini(SessionManager.getGeminiKey(), buildGeminiImageBody(prompt, b64, mime));
-                FactCheckResult r = parseGeminiResponse(raw, "Claim from " + imageFile.getName());
-                r.setAiModel("Google Gemini 1.5 Flash Vision [Live API]");
-                r.setInputType("image");
-                return r;
-            } catch (Exception ex) {
-                System.err.println("[API Error Gemini Vision] " + ex.getMessage());
-            }
+            boolean wantGrounding = isTimeSensitiveClaim(imageFile.getName());
+            FactCheckResult gr = geminiImageChain(SessionManager.getGeminiKey(), prompt, b64, mime, imageFile, wantGrounding);
+            if (gr != null) return gr;
         }
 
         // 3. Live OpenAI Vision API
@@ -215,8 +496,10 @@ public class FactCheckerService {
                 FactCheckResult r = parseOpenAIResponse(raw, "Claim from " + imageFile.getName());
                 r.setAiModel("ChatGPT (GPT-4o Vision) [Live API]");
                 r.setInputType("image");
-                return r;
+                return postProcessLiveResult(r, liveImageBasis(r, imageFile), "chatgpt", false);
             } catch (Exception ex) {
+                noteLiveFailure("chatgpt", ex);
+                if (isAuthFailure(ex)) throw new RuntimeException("Engine error — ChatGPT rejected the API key. Check Settings.", ex);
                 System.err.println("[API Error ChatGPT Vision] " + ex.getMessage());
             }
         }
@@ -226,19 +509,34 @@ public class FactCheckerService {
             try {
                 String raw = postClaude(SessionManager.getClaudeKey(), buildClaudeImageBody(prompt, b64, mime));
                 FactCheckResult r = parseClaudeResponse(raw, "Claim from " + imageFile.getName());
-                r.setAiModel("Claude 3.5/4.5 Sonnet Vision [Live API]");
+                r.setAiModel("Claude Sonnet 5 Vision [Live API]");
                 r.setInputType("image");
-                return r;
+                return postProcessLiveResult(r, liveImageBasis(r, imageFile), "claude", false);
             } catch (Exception ex) {
+                noteLiveFailure("claude", ex);
+                if (isAuthFailure(ex)) throw new RuntimeException("Engine error — Claude rejected the API key. Check Settings.", ex);
                 System.err.println("[API Error Claude Vision] " + ex.getMessage());
             }
         }
 
         // 5. Built-in Image Heuristic Analysis (Free Mode)
         Thread.sleep(800);
+        String liveErrImg = takeLiveFailure();
+        if (liveErrImg != null && isTransientFailure(liveErrImg)) {
+            System.err.println("[Fallback] image claim: live engines failed transiently after retries — returning UNAVAILABLE state.");
+            return unavailableResult("Visual Content Analysis: \"" + imageFile.getName() + "\"", "image", liveErrImg);
+        }
         String fileName = imageFile.getName();
         FactCheckResult fallback = evaluateImageOffline(fileName, imageFile);
         fallback.setInputType("image");
+        SourceRetrievalService.verifyAndEnrich(fallback);
+        if (liveErrImg != null) {
+            fallback.setFallbackReason("Live verification failed (" + liveErrImg + ") — offline engine used instead.");
+            System.err.println("[Fallback] image claim offline after live failure: " + liveErrImg);
+        } else {
+            fallback.setFallbackReason("No Live AI API key configured — offline engine used.");
+            System.err.println("[Fallback] image claim offline: no Live AI key configured.");
+        }
         return fallback;
     }
 
@@ -259,13 +557,15 @@ public class FactCheckerService {
         if (page.downloadedImage != null && page.downloadedImage.exists()) {
             FactCheckResult imgMatch = PreloadedDatabase.getInstance().matchPerceptual(page.downloadedImage);
             if (imgMatch != null) {
-                result = imgMatch;
+                result = imgMatch.copy(); // never mutate the shared cache entry
                 result.setInputType("url");
                 result.setSourceUrl(urlStr);
                 result.setExtractedText(page.text != null ? page.text : "");
                 if (result.getSubmittedImageUrl() == null || result.getSubmittedImageUrl().isBlank()) {
                     result.setSubmittedImageUrl(page.imageUrl != null ? page.imageUrl : page.downloadedImage.toURI().toString());
                 }
+                SourceRetrievalService.verifyAndEnrich(result);
+                System.err.println("[Engine] URL claim served from preloaded archive (no live call needed).");
                 return result;
             }
         }
@@ -302,50 +602,6 @@ public class FactCheckerService {
     }
 
     // ═════════════════════════════════════════════════════════════════════════
-    //  Summary Generation (Topic 4: JSON Request / Response)
-    // ═════════════════════════════════════════════════════════════════════════
-
-    public static String generateSummary(String model, String claim, String verdict,
-                                         String explanation, List<FactCheckResult.Source> sources) throws Exception {
-        boolean useGemini  = model != null && (model.contains("Gemini") || "Auto / Smart Engine".equalsIgnoreCase(model) && SessionManager.hasGeminiKey());
-        boolean useChatGPT = "ChatGPT".equalsIgnoreCase(model) || (model != null && model.contains("ChatGPT"));
-        boolean useClaude  = "Claude".equalsIgnoreCase(model) || (model != null && model.contains("Claude"));
-
-        StringBuilder sb = new StringBuilder();
-        if (sources != null) {
-            for (FactCheckResult.Source s : sources) {
-                sb.append("- [").append(s.type).append("] ").append(s.title).append(" (").append(s.url).append(")\n");
-            }
-        }
-        String prompt =
-            "Write exactly 10 numbered bullet-point sentences thoroughly summarising this fact-check:\n" +
-            "Claim: " + claim + "\n" +
-            "Verdict: " + verdict + "\n" +
-            "Explanation: " + explanation + "\n" +
-            "Sources:\n" + sb;
-
-        if (useGemini && SessionManager.hasGeminiKey()) {
-            try {
-                return extractGeminiSummary(postGemini(SessionManager.getGeminiKey(), buildGeminiTextBody(prompt)));
-            } catch (Exception ignored) {}
-        }
-        if (useChatGPT && SessionManager.hasOpenAiKey()) {
-            try {
-                return extractOpenAISummary(postOpenAI(SessionManager.getOpenAiKey(), buildOpenAITextBody(prompt)));
-            } catch (Exception ignored) {}
-        }
-        if (useClaude && SessionManager.hasClaudeKey()) {
-            try {
-                return extractClaudeSummary(postClaude(SessionManager.getClaudeKey(), buildClaudeTextBody(prompt)));
-            } catch (Exception ignored) {}
-        }
-
-        // Offline 10-point summary generator
-        return buildOfflineSummary(claim, verdict, explanation, sources);
-    }
-
-
-    // ═════════════════════════════════════════════════════════════════════════
     //  Intelligent Built-in Fact Verification Engine (Offline / Free Mode)
     // ═════════════════════════════════════════════════════════════════════════
 
@@ -359,6 +615,29 @@ public class FactCheckerService {
         r.setClaim(rawClaim);
         r.setPreloaded(false);
         r.setAiModel("Sondhan Knowledge Engine (Offline Mode)");
+
+        // ── Time-sensitivity pre-check ─────────────────────────────────────────
+        // The offline engine must NEVER give a firm verdict on current
+        // office-holders, ongoing events, or recent statistics — it has no live
+        // sources. Such claims always defer to "requires live source check".
+        if (isTimeSensitiveClaim(rawClaim)) {
+            r.setVerdict("UNVERIFIED");
+            r.setConfidence(50);
+            r.setExplanation(
+                "⚠ UNVERIFIED — Time-sensitive claim requires a live source check. " +
+                "This claim concerns a current office-holder, ongoing event, or recent statistic, " +
+                "which the offline knowledge base cannot confirm. " +
+                "Configure a Live AI API key (Gemini with Search Grounding recommended) for verification."
+            );
+            r.setCorrection(null);
+            String enc = urlEncode(rawClaim);
+            r.setSources(List.of(
+                new FactCheckResult.Source("Google News – Live coverage search", "https://news.google.com/search?q=" + enc, "newspaper"),
+                new FactCheckResult.Source("Reuters – Live news wire search", "https://www.reuters.com/site-search/?query=" + enc, "newspaper")
+            ));
+            r.classifySourcesFromFlat();
+            return r;
+        }
 
         // ── 1. Dhaka Capital ─────────────────────────────────────────────────
         if (lower.contains("dhaka") && (lower.contains("capital") || lower.contains("bangladesh"))) {
@@ -637,37 +916,25 @@ public class FactCheckerService {
             return r;
         }
 
-        // ── 11. Generic Synthesizer for Arbitrary User Input ──────────────────
-        boolean isNegative = lower.contains("not") || lower.contains("never") || lower.contains("no ") || lower.contains("hoax") || lower.contains("fake") || lower.contains("conspiracy");
-        boolean isAffirmative = lower.contains("is ") || lower.contains("are ") || lower.contains("was ") || lower.contains("has ") || lower.contains("discovered");
-
-        String verdict = isNegative ? "MISLEADING" : (isAffirmative ? "TRUE" : "UNVERIFIED");
-        int confidence = 75 + (Math.abs(rawClaim.hashCode()) % 18);
-
-        r.setVerdict(verdict);
-        r.setConfidence(confidence);
+        // ── 11. No-Match Fallback: honest UNVERIFIED ───────────────────────────
+        // This path must NEVER fabricate a confident verdict. A previous template
+        // generator here defaulted unknown claims to TRUE with filler text — that
+        // behavior produced confident wrong verdicts and has been removed.
+        // No matched source → UNVERIFIED, always.
+        r.setVerdict("UNVERIFIED");
+        r.setConfidence(50);
         r.setExplanation(
-            "An exhaustive cross-examination of digital newspaper archives, peer-reviewed monographs, and standard encyclopedic indexes was conducted for the claim: \"" + rawClaim + "\". " +
-            "Preliminary corroboration suggests aspects of this claim require careful contextual distinction between established consensus and popular interpretation. " +
-            "Consult the referenced academic and news compendiums below for primary documentation."
+            "⚠ UNVERIFIED — No matching source found. Sondhan's offline knowledge base " +
+            "contains no verified record covering the claim: \"" + rawClaim + "\". " +
+            "No verdict can be given without a matched source. Configure a Live AI API key " +
+            "in Settings for full verification."
         );
-        if ("FALSE".equalsIgnoreCase(verdict) || "MISLEADING".equalsIgnoreCase(verdict)) {
-            r.setCorrection(generateCorrectionOffline(rawClaim, verdict, r.getExplanation()));
-        }
+        r.setCorrection(null);
 
-        String encodedClaim;
-        try {
-            encodedClaim = java.net.URLEncoder.encode(rawClaim, java.nio.charset.StandardCharsets.UTF_8);
-        } catch (Exception e) {
-            encodedClaim = rawClaim.replace(" ", "+");
-        }
-
-        r.setSources(List.of(
-            new FactCheckResult.Source("Google Scholar – Academic Papers & Journal Consensus on \"" + rawClaim + "\"", "https://scholar.google.com/scholar?q=" + encodedClaim, "journal"),
-            new FactCheckResult.Source("Wikipedia – Free Encyclopedia Direct Article Search", "https://en.wikipedia.org/wiki/Special:Search?search=" + encodedClaim, "book"),
-            new FactCheckResult.Source("Reuters – Global News Wire & Fact Check Search", "https://www.reuters.com/site-search/?query=" + encodedClaim, "newspaper"),
-            new FactCheckResult.Source("Google Books – Primary Monograph & Literature Search", "https://www.google.com/search?tbm=bks&q=" + encodedClaim, "book")
-        ));
+        // Real retrieval instead of fabricated search links: query the Wikipedia
+        // search API for genuinely retrieved pages. Empty on failure — the shared
+        // verify step then reports an explicit retrieval failure (never filler).
+        r.setSources(SourceRetrievalService.searchWikipedia(rawClaim, 3));
         // Populate evidence buckets from the flat list so Evidence Balance renders
         // for arbitrary claims in every input mode. Timeline is intentionally omitted
         // here: no verifiable dated event exists for an arbitrary claim, and the
@@ -675,6 +942,134 @@ public class FactCheckerService {
         r.classifySourcesFromFlat();
 
         return r;
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  Claim Validation Helpers (Correctness: no fabricated confident verdicts)
+    // ═════════════════════════════════════════════════════════════════════════
+
+    private static String urlEncode(String s) {
+        try {
+            return java.net.URLEncoder.encode(s, java.nio.charset.StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            return s.replace(" ", "+");
+        }
+    }
+
+    private static final List<String> OFFICE_WORDS = List.of(
+        "prime minister", "president", "premier", "chancellor", "pope", "monarch",
+        "governor", "mayor", "ceo ", "coach ", "captain "
+    );
+
+    /**
+     * Classifies whether a claim is time-sensitive (current office-holders,
+     * ongoing events, recent statistics) vs. stable (historical/scientific facts).
+     * Time-sensitive claims must never receive a firm verdict from a non-grounded source.
+     */
+    public static boolean isTimeSensitiveClaim(String claim) {
+        if (claim == null || claim.isBlank()) return false;
+        String l = " " + claim.toLowerCase() + " ";
+        if (l.contains("currently") || l.contains("incumbent") || l.contains("sitting ")
+                || l.contains("reigning") || l.contains("right now") || l.contains("as of now")
+                || l.contains(" today") || l.contains("latest") || l.contains("breaking")
+                || l.contains("ongoing")) return true;
+        if (claim.matches("(?s).*\\b(202[4-9]|203\\d)\\b.*")) return true;
+        boolean office = OFFICE_WORDS.stream().anyMatch(l::contains);
+        if (l.contains("current") && office) return true;
+        if (office && (l.contains(" is ") || l.contains(" are ") || l.contains(" serves ")
+                || l.contains(" leads ") || l.contains(" heads "))) return true;
+        if (l.contains("election") && (l.contains("will ") || l.contains("upcoming")
+                || l.contains(" next ") || l.contains("won ") || l.contains("wins "))) return true;
+        return false;
+    }
+
+    private static final java.util.Set<String> STOPWORDS = java.util.Set.of(
+        "the", "a", "an", "and", "or", "of", "in", "on", "is", "are", "was", "were",
+        "has", "have", "had", "with", "for", "from", "that", "this", "these", "those",
+        "been", "being", "will", "would", "should", "could", "there", "their", "what",
+        "which", "when", "where", "who", "whom", "about", "into", "over", "after",
+        "before", "between", "during", "such", "than", "then", "also", "says", "said",
+        "claim", "claims", "claimed", "report", "reports", "news", "article", "image",
+        "photo", "video", "post", "states", "state"
+    );
+
+    /** Extracts significant keywords (len ≥ 4, non-stopword) from a claim. */
+    public static List<String> claimKeywords(String claim) {
+        List<String> kws = new ArrayList<>();
+        if (claim == null) return kws;
+        for (String w : claim.toLowerCase().split("[^a-z]+")) {
+            if (w.length() >= 4 && !STOPWORDS.contains(w) && !kws.contains(w)) kws.add(w);
+        }
+        return kws;
+    }
+
+    /**
+     * A Live AI response is only acceptable if its analysis/correction/sources
+     * actually reference the claim's key terms. Fully generic text with no
+     * claim-specific content is a failed verification, not a valid verdict.
+     */
+    public static boolean isResponseClaimRelevant(String claim, FactCheckResult r) {
+        List<String> kws = claimKeywords(claim);
+        if (kws.isEmpty() || r == null) return true;
+        StringBuilder hay = new StringBuilder();
+        if (r.getExplanation() != null) hay.append(r.getExplanation()).append(' ');
+        if (r.getCorrection() != null) hay.append(r.getCorrection()).append(' ');
+        if (r.getSources() != null) {
+            for (FactCheckResult.Source s : r.getSources()) {
+                if (s.title != null) hay.append(s.title).append(' ');
+                if (s.publisher != null) hay.append(s.publisher).append(' ');
+            }
+        }
+        String h = hay.toString().toLowerCase();
+        int hits = 0;
+        for (String k : kws) if (h.contains(k)) hits++;
+        return hits >= (kws.size() >= 4 ? 2 : 1);
+    }
+
+    /**
+     * Post-processes every Live AI result through both correctness gates:
+     * time-sensitivity (grounded source required) and claim-relevance
+     * (no generic filler accepted). Returns the result, possibly downgraded
+     * to an honest UNVERIFIED.
+     */
+    private static FactCheckResult postProcessLiveResult(FactCheckResult r, String claimBasis,
+                                                         String engine, boolean grounded) {
+        if (r == null) return null;
+        if (isTimeSensitiveClaim(claimBasis)) {
+            if (!("gemini".equals(engine) && grounded)) {
+                System.err.println("[API Validation] Time-sensitive claim via " + engine
+                    + " (grounded=" + grounded + "); marking UNVERIFIED.");
+                r.setVerdict("UNVERIFIED");
+                r.setConfidence(50);
+                r.setExplanation("⚠ UNVERIFIED — Time-sensitive claim requires a live grounded source. "
+                    + ("gemini".equals(engine)
+                        ? "Search grounding did not return supporting metadata, so the current status cannot be confirmed."
+                        : "This engine has no live web access, so the current status cannot be confirmed from training data alone."));
+                r.setCorrection(null);
+                SourceRetrievalService.verifyAndEnrich(r);
+                return r;
+            }
+        }
+        if (!isResponseClaimRelevant(claimBasis, r)) {
+            System.err.println("[API Validation] Live " + engine + " response lacked claim-specific references; marking UNVERIFIED.");
+            r.setVerdict("UNVERIFIED");
+            r.setConfidence(50);
+            r.setExplanation("⚠ UNVERIFIED — The live engine returned a generic response without claim-specific references. "
+                + "Treated as a failed verification: the claim could not be confirmed.");
+            r.setCorrection(null);
+        }
+        // Even live-cited links are fetch-checked: hallucinated URLs get dropped here.
+        SourceRetrievalService.verifyAndEnrich(r);
+        return r;
+    }
+
+    /** Claim basis for validating live image results: the AI-extracted claim, else the filename. */
+    private static String liveImageBasis(FactCheckResult r, File imageFile) {
+        String c = r != null ? r.getClaim() : null;
+        if (c == null || c.isBlank() || c.startsWith("Claim from ")) {
+            return imageFile != null ? imageFile.getName() : "";
+        }
+        return c;
     }
 
     /**
@@ -685,6 +1080,21 @@ public class FactCheckerService {
         FactCheckResult r = new FactCheckResult();
         r.setPreloaded(false);
         r.setAiModel("Sondhan Visual Heuristic Engine (Offline)");
+
+        // Time-sensitivity guard (same discipline as text path): a filename
+        // asserting a current office-holder or ongoing event gets no firm verdict.
+        if (isTimeSensitiveClaim(fileName)) {
+            r.setClaim("Visual Content Analysis: \"" + fileName + "\"");
+            r.setVerdict("UNVERIFIED");
+            r.setConfidence(50);
+            r.setExplanation(
+                "⚠ UNVERIFIED — Time-sensitive claim requires a live source check. " +
+                "The offline visual engine cannot confirm current office-holders or ongoing events."
+            );
+            r.setCorrection(null);
+            r.setSources(List.of());
+            return r;
+        }
 
         if (lower.contains("dhaka") || lower.contains("capital")) {
             r.setClaim("Visual Claim: Dhaka designated capital of Bangladesh");
@@ -735,10 +1145,11 @@ public class FactCheckerService {
         // Generic image verification
         r.setClaim("Visual Content Analysis: \"" + fileName + "\"");
         r.setVerdict("UNVERIFIED");
-        r.setConfidence(68);
+        r.setConfidence(50);
         r.setExplanation(
-            "The image file has been cryptographically cataloged. In Free Offline Mode, exact automated claim extraction is bounded by preloaded patterns. " +
-            "To perform full neural multimodal OCR and optical claim deduction, configure your Anthropic or OpenAI API key in Settings."
+            "⚠ UNVERIFIED — No matching source found. The image file has been cryptographically cataloged, " +
+            "but the offline visual archive contains no verified record matching this content. " +
+            "To perform full neural multimodal OCR and optical claim deduction, configure an Anthropic or OpenAI API key in Settings."
         );
         r.setSources(List.of(
             new FactCheckResult.Source("Google Fact Check Tools & Explorer", "https://toolbox.google.com/factcheck/explorer", "newspaper"),
@@ -795,21 +1206,6 @@ public class FactCheckerService {
         return "Accredited news archives and reference encyclopedias do not corroborate this claim in its present formulation.";
     }
 
-    private static String buildOfflineSummary(String claim, String verdict, String explanation, List<FactCheckResult.Source> sources) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("1. Core Inquiry: The verified subject is \"").append(claim).append("\".\n");
-        sb.append("2. Formal Verdict: Categorized as ").append(verdict).append(" following cross-source evaluation.\n");
-        sb.append("3. Primary Finding: ").append(explanation.split("\\.")[0]).append(".\n");
-        sb.append("4. Corroborating Evidence: Multiple independent primary sources were analyzed.\n");
-        sb.append("5. Newspaper Archives: Verified through established national and international press desks.\n");
-        sb.append("6. Book & Encyclopedia Records: Cross-checked against standard academic reference literature.\n");
-        sb.append("7. Institutional Consensus: Aligns with recognized government or scientific bodies.\n");
-        sb.append("8. Disinformation Risk: Misleading headlines on this topic often spread on social networks.\n");
-        sb.append("9. Verification Methodology: Checked using dual-source cross-indexing protocols.\n");
-        sb.append("10. Conclusion: Readers should cite peer-reviewed documentation before sharing.");
-        return sb.toString();
-    }
-
     // ═════════════════════════════════════════════════════════════════════════
     //  Feature 3: Article Claim Detection (URL Multi-Claim Analysis)
     // ═════════════════════════════════════════════════════════════════════════
@@ -837,7 +1233,7 @@ public class FactCheckerService {
 
         if (useGemini && SessionManager.hasGeminiKey()) {
             try {
-                String raw = postGemini(SessionManager.getGeminiKey(), buildGeminiTextBody(prompt));
+                String raw = postGemini(SessionManager.getGeminiKey(), buildGeminiTextBody(prompt, false), GEMINI_MODEL);
                 return parseClaimsArray(extractGeminiSummary(raw));
             } catch (Exception ex) {
                 System.err.println("[Article Claims Gemini] " + ex.getMessage());
@@ -913,7 +1309,7 @@ public class FactCheckerService {
     //  Google Gemini API – HTTP & JSON Builders (Jackson – Free Key Supported)
     // ═════════════════════════════════════════════════════════════════════════
 
-    private static String buildGeminiTextBody(String userPrompt) throws Exception {
+    private static String buildGeminiTextBody(String userPrompt, boolean grounding) throws Exception {
         ObjectNode root = MAPPER.createObjectNode();
 
         // System instructions
@@ -933,10 +1329,20 @@ public class FactCheckerService {
         genConfig.put("response_mime_type", "application/json");
         genConfig.put("temperature", 0.2);
 
+        // Search Grounding ONLY for time-sensitive claims (current office-holders,
+        // ongoing events). The google_search tool is incompatible with structured
+        // JSON responses on this model for ordinary claims — attaching it
+        // unconditionally breaks every request. groundingMetadata presence in the
+        // response confirms grounding actually fired for the claim.
+        if (grounding) {
+            ArrayNode tools = root.putArray("tools");
+            tools.addObject().putObject("google_search");
+        }
+
         return MAPPER.writeValueAsString(root);
     }
 
-    private static String buildGeminiImageBody(String prompt, String b64, String mime) throws Exception {
+    private static String buildGeminiImageBody(String prompt, String b64, String mime, boolean grounding) throws Exception {
         ObjectNode root = MAPPER.createObjectNode();
 
         // System instructions
@@ -960,17 +1366,27 @@ public class FactCheckerService {
         genConfig.put("response_mime_type", "application/json");
         genConfig.put("temperature", 0.2);
 
+        // Search Grounding only when the image filename signals a time-sensitive
+        // claim (same incompatibility note as the text path).
+        if (grounding) {
+            ArrayNode tools = root.putArray("tools");
+            tools.addObject().putObject("google_search");
+        }
+
         return MAPPER.writeValueAsString(root);
     }
 
-    private static String postGemini(String key, String json) throws Exception {
+    private static String postGemini(String key, String json, String model) throws Exception {
         HttpRequest req = HttpRequest.newBuilder()
-            .uri(URI.create(GEMINI_BASE_URL + key))
+            .uri(URI.create(GEMINI_URL_PREFIX + model + ":generateContent?key=" + key))
             .header("Content-Type", "application/json")
             .timeout(Duration.ofSeconds(60))
             .POST(HttpRequest.BodyPublishers.ofString(json))
             .build();
-        HttpResponse<String> resp = HTTP.send(req, HttpResponse.BodyHandlers.ofString());
+        // Item 1/5: the exact model string sent, on every request (key never logged).
+        System.err.println("[API] Gemini POST " + req.uri().getPath() + " key=" + maskKey(key));
+        HttpResponse<String> resp = sendWithRetry(req, "Gemini(" + model + ")");
+        System.err.println("[API] Gemini HTTP " + resp.statusCode() + " key=" + maskKey(key));
         if (resp.statusCode() != 200)
             throw new RuntimeException("Gemini API error (" + resp.statusCode() + "): " + resp.body());
         return resp.body();
@@ -980,13 +1396,21 @@ public class FactCheckerService {
         JsonNode envelope = MAPPER.readTree(raw);
         JsonNode candidates = envelope.path("candidates");
         String text = "";
+        boolean grounded = false;
         if (candidates.isArray() && candidates.size() > 0) {
             JsonNode parts = candidates.get(0).path("content").path("parts");
             if (parts.isArray() && parts.size() > 0) {
                 text = parts.get(0).path("text").asText("");
             }
+            // Confirm Search Grounding actually fired for this response.
+            JsonNode gm = candidates.get(0).path("groundingMetadata");
+            grounded = gm.isObject()
+                && (gm.has("webSearchQueries") || gm.has("groundingChunks") || gm.has("searchEntryPoint"));
         }
-        return parseFactJson(text, fallback);
+        FactCheckResult r = parseFactJson(text, fallback);
+        r.setGrounded(grounded);
+        System.err.println("[API] Gemini grounded=" + grounded);
+        return r;
     }
 
     private static String extractGeminiSummary(String raw) {
@@ -1051,7 +1475,8 @@ public class FactCheckerService {
             .timeout(Duration.ofSeconds(60))
             .POST(HttpRequest.BodyPublishers.ofString(json))
             .build();
-        HttpResponse<String> resp = HTTP.send(req, HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> resp = sendWithRetry(req, "Claude(" + CLAUDE_MODEL + ")");
+        System.err.println("[API] Claude HTTP " + resp.statusCode() + " key=" + maskKey(key));
         if (resp.statusCode() != 200)
             throw new RuntimeException("Claude API error (" + resp.statusCode() + "): " + resp.body());
         return resp.body();
@@ -1132,10 +1557,119 @@ public class FactCheckerService {
             .timeout(Duration.ofSeconds(60))
             .POST(HttpRequest.BodyPublishers.ofString(json))
             .build();
-        HttpResponse<String> resp = HTTP.send(req, HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> resp = sendWithRetry(req, "ChatGPT(" + OPENAI_MODEL + ")");
+        System.err.println("[API] ChatGPT HTTP " + resp.statusCode() + " key=" + maskKey(key));
         if (resp.statusCode() != 200)
             throw new RuntimeException("ChatGPT API error (" + resp.statusCode() + "): " + resp.body());
         return resp.body();
+    }
+
+    /** Logs key presence without ever printing the secret itself. */
+    private static String maskKey(String key) {
+        if (key == null || key.isBlank()) return "<missing>";
+        String k = key.trim();
+        return "len=" + k.length() + " ..." + k.substring(Math.max(0, k.length() - 4));
+    }
+
+    // ── Transient-failure retry with exponential backoff (1s / 2s / 4s) ──────
+    // Initial attempt + up to 3 retries. Only 429/5xx statuses and transport
+    // timeouts are retried; auth/config/grounding rejections fail immediately
+    // so bad keys and dead models surface fast instead of stalling.
+
+    private static final int MAX_ATTEMPTS = 4;
+    private static final long[] RETRY_DELAYS_MS = { 1000, 2000, 4000 };
+
+    private static HttpResponse<String> sendWithRetry(HttpRequest req, String engineLabel) throws Exception {
+        Exception last = null;
+        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+            try {
+                HttpResponse<String> resp = HTTP.send(req, HttpResponse.BodyHandlers.ofString());
+                int sc = resp.statusCode();
+                if (isRetryableStatus(sc) && attempt < MAX_ATTEMPTS) {
+                    long wait = RETRY_DELAYS_MS[attempt - 1];
+                    System.err.println("[API] " + engineLabel + " attempt " + attempt + "/" + MAX_ATTEMPTS
+                        + " → HTTP " + sc + " (transient); retrying in " + (wait / 1000) + "s...");
+                    sleepBackoff(wait);
+                    continue;
+                }
+                if (attempt > 1) {
+                    System.err.println("[API] " + engineLabel + " attempt " + attempt + "/" + MAX_ATTEMPTS
+                        + " → HTTP " + sc);
+                }
+                return resp;
+            } catch (Exception ex) {
+                if (isRetryableException(ex) && attempt < MAX_ATTEMPTS) {
+                    long wait = RETRY_DELAYS_MS[attempt - 1];
+                    System.err.println("[API] " + engineLabel + " attempt " + attempt + "/" + MAX_ATTEMPTS
+                        + " transport failure (" + ex.getClass().getSimpleName() + "); retrying in " + (wait / 1000) + "s...");
+                    sleepBackoff(wait);
+                    last = ex;
+                    continue;
+                }
+                throw ex;
+            }
+        }
+        throw last != null
+            ? new RuntimeException(engineLabel + " failed after " + MAX_ATTEMPTS + " attempts. Last error: " + last.getMessage(), last)
+            : new RuntimeException(engineLabel + " failed after " + MAX_ATTEMPTS + " attempts");
+    }
+
+    private static boolean isRetryableStatus(int sc) {
+        return sc == 429 || sc == 500 || sc == 502 || sc == 503 || sc == 504;
+    }
+
+    private static boolean isRetryableException(Throwable ex) {
+        String n = ex.getClass().getSimpleName().toLowerCase();
+        String m = String.valueOf(ex.getMessage()).toLowerCase();
+        return n.contains("timeout") || n.contains("connect")
+            || m.contains("timed out") || m.contains("timeout")
+            || m.contains("connection reset") || m.contains("broken pipe");
+    }
+
+    private static void sleepBackoff(long ms) {
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("interrupted during retry backoff", ie);
+        }
+    }
+
+    /**
+     * True when a recorded live failure looks transient (overload, rate limit,
+     * 5xx, timeout) rather than auth/config — i.e. the case that must surface
+     * as "verification unavailable" instead of a degraded offline verdict.
+     */
+    public static boolean isTransientFailure(String detail) {
+        if (detail == null) return false;
+        String l = detail.toLowerCase();
+        return l.contains("(503)") || l.contains("(429)") || l.contains("(500)")
+            || l.contains("(502)") || l.contains("(504)")
+            || l.contains("unavailable") || l.contains("resource_exhausted")
+            || l.contains("rate limit") || l.contains("rate_limit")
+            || l.contains("quota exceeded") || l.contains("quota_exceeded")
+            || l.contains("timed out") || l.contains("timeout")
+            || l.contains("connection reset") || l.contains("connectexception")
+            || l.contains("httpconnecttimeout") || l.contains("failed after 4 attempts");
+    }
+
+    /**
+     * Builds the "verification unavailable" result: explicit failure state,
+     * never a placeholder verdict. No evidence is populated on purpose —
+     * the UI renders the unavailable card instead of verdict/confidence/bars.
+     */
+    private static FactCheckResult unavailableResult(String claim, String inputType, String liveErr) {
+        FactCheckResult u = new FactCheckResult();
+        u.setClaim(claim);
+        u.setVerdict("UNVERIFIED");
+        u.setConfidence(0);
+        u.setInputType(inputType);
+        u.setAiModel("Sondhan Engine (unavailable)");
+        u.setVerificationUnavailable(true);
+        u.setUnavailableReason("Verification unavailable — live API retries failed, please try again. (" + liveErr + ")");
+        u.setFallbackReason("Live verification failed after retries (" + liveErr + ") — showing unavailable state instead of a placeholder verdict.");
+        u.setSources(new ArrayList<>());
+        return u;
     }
 
     private static FactCheckResult parseOpenAIResponse(String raw, String fallback) throws Exception {
@@ -1244,6 +1778,9 @@ public class FactCheckerService {
             r.setTimeline(timeline);
 
         } catch (Exception ex) {
+            // Parse failures are logged visibly — never silently mask them as a verdict.
+            System.err.println("[Parse] Fact JSON parse failed (" + ex.getClass().getSimpleName()
+                + ": " + ex.getMessage() + "); returning UNVERIFIED placeholder.");
             r.setClaim(fallback != null ? fallback : "Unknown");
             r.setVerdict("UNVERIFIED");
             r.setConfidence(50);

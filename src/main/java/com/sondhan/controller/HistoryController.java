@@ -310,7 +310,8 @@ public class HistoryController {
         verdictDistributionBox.getChildren().clear();
         if (verdictDist.isEmpty()) {
             Label lbl = new Label("No data yet");
-            lbl.setStyle("-fx-text-fill: #64748b; -fx-font-size: 11px;");
+            lbl.getStyleClass().add("ev-count");
+            lbl.setStyle("-fx-font-size: 11px;");
             verdictDistributionBox.getChildren().add(lbl);
             return;
         }
@@ -325,7 +326,8 @@ public class HistoryController {
             row.setAlignment(Pos.CENTER_LEFT);
 
             Label nameLabel = new Label(verdict);
-            nameLabel.setStyle("-fx-text-fill: #CBD5E1; -fx-font-size: 11px; -fx-min-width: 120px;");
+            nameLabel.getStyleClass().add("ev-label");
+            nameLabel.setStyle("-fx-font-size: 11px; -fx-min-width: 120px;");
             nameLabel.setWrapText(true);
 
             // Bar track
@@ -340,7 +342,8 @@ public class HistoryController {
             trackBg.getChildren().add(fill);
 
             Label countLabel = new Label(String.valueOf(count));
-            countLabel.setStyle("-fx-text-fill: #64748B; -fx-font-size: 11px; -fx-min-width: 25px;");
+            countLabel.getStyleClass().add("ev-count");
+            countLabel.setStyle("-fx-font-size: 11px; -fx-min-width: 25px;");
 
             row.getChildren().addAll(nameLabel, trackBg, countLabel);
             verdictDistributionBox.getChildren().add(row);
@@ -354,7 +357,8 @@ public class HistoryController {
         verificationMethodsBox.getChildren().clear();
         if (methodDist.isEmpty()) {
             Label lbl = new Label("No data yet");
-            lbl.setStyle("-fx-text-fill: #64748b; -fx-font-size: 11px;");
+            lbl.getStyleClass().add("ev-count");
+            lbl.setStyle("-fx-font-size: 11px;");
             verificationMethodsBox.getChildren().add(lbl);
             return;
         }
@@ -381,9 +385,11 @@ public class HistoryController {
             Label iconLabel = new Label(icon);
             iconLabel.setStyle("-fx-font-size: 18px;");
             Label countLabel = new Label(String.valueOf(count));
-            countLabel.setStyle("-fx-text-fill: #38bdf8; -fx-font-size: 16px; -fx-font-weight: 800;");
+            countLabel.getStyleClass().add("src-url");
+            countLabel.setStyle("-fx-font-size: 16px; -fx-font-weight: 800;");
             Label nameLabel = new Label(label);
-            nameLabel.setStyle("-fx-text-fill: #94a3b8; -fx-font-size: 10px;");
+            nameLabel.getStyleClass().add("text-muted");
+            nameLabel.setStyle("-fx-font-size: 10px;");
 
             methodBox.getChildren().addAll(iconLabel, countLabel, nameLabel);
             verificationMethodsBox.getChildren().add(methodBox);
@@ -397,7 +403,8 @@ public class HistoryController {
         sourceDistributionBox.getChildren().clear();
         if (sourceDist.isEmpty()) {
             Label lbl = new Label("No data yet");
-            lbl.setStyle("-fx-text-fill: #64748b; -fx-font-size: 11px;");
+            lbl.getStyleClass().add("ev-count");
+            lbl.setStyle("-fx-font-size: 11px;");
             sourceDistributionBox.getChildren().add(lbl);
             return;
         }
@@ -421,10 +428,12 @@ public class HistoryController {
             iconLabel.setStyle("-fx-font-size: 14px;");
 
             Label nameLabel = new Label(capitalize(type));
-            nameLabel.setStyle("-fx-text-fill: #CBD5E1; -fx-font-size: 11px; -fx-min-width: 100px;");
+            nameLabel.getStyleClass().add("ev-label");
+            nameLabel.setStyle("-fx-font-size: 11px; -fx-min-width: 100px;");
 
             Label countLabel = new Label(String.valueOf(count));
-            countLabel.setStyle("-fx-text-fill: #34d399; -fx-font-size: 12px; -fx-font-weight: 700;");
+            countLabel.getStyleClass().add("corr-inline");
+            countLabel.setStyle("-fx-font-size: 12px; -fx-font-weight: 700;");
 
             row.getChildren().addAll(iconLabel, nameLabel, countLabel);
             sourceDistributionBox.getChildren().add(row);
@@ -438,7 +447,8 @@ public class HistoryController {
         recentActivityBox.getChildren().clear();
         if (recent.isEmpty()) {
             Label lbl = new Label("No recent activity");
-            lbl.setStyle("-fx-text-fill: #64748b; -fx-font-size: 11px;");
+            lbl.getStyleClass().add("ev-count");
+            lbl.setStyle("-fx-font-size: 11px;");
             recentActivityBox.getChildren().add(lbl);
             return;
         }
@@ -464,12 +474,14 @@ public class HistoryController {
             String claimSnippet = h.getClaim() != null ? h.getClaim() : "";
             if (claimSnippet.length() > 50) claimSnippet = claimSnippet.substring(0, 50) + "…";
             Label claimLabel = new Label(claimSnippet);
-            claimLabel.setStyle("-fx-text-fill: #CBD5E1; -fx-font-size: 12px;");
+            claimLabel.getStyleClass().add("ev-label");
+            claimLabel.setStyle("-fx-font-size: 12px;");
             HBox.setHgrow(claimLabel, Priority.ALWAYS);
 
             // Relative time
             Label timeLabel = new Label(getRelativeTime(h.getCreatedAt()));
-            timeLabel.setStyle("-fx-text-fill: #64748B; -fx-font-size: 11px;");
+            timeLabel.getStyleClass().add("ev-count");
+            timeLabel.setStyle("-fx-font-size: 11px;");
 
             row.getChildren().addAll(iconLabel, claimLabel, timeLabel);
 

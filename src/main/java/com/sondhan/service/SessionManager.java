@@ -46,6 +46,36 @@ public class SessionManager {
     }
 
     /**
+     * Loads API keys from environment variables at startup (runtime, not build
+     * time). Dialog-entered keys take precedence — env values only fill blanks.
+     * Supported: GEMINI_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY.
+     * Key values are NEVER logged; only masked source/length diagnostics.
+     */
+    public static void initFromEnv() {
+        loadEnvKey("GEMINI_API_KEY", SessionManager::hasGeminiKey, SessionManager::setGeminiKey, "Gemini");
+        loadEnvKey("OPENAI_API_KEY", SessionManager::hasOpenAiKey, SessionManager::setOpenAiKey, "ChatGPT");
+        loadEnvKey("ANTHROPIC_API_KEY", SessionManager::hasClaudeKey, SessionManager::setClaudeKey, "Claude");
+        if (!hasAnyKey()) {
+            System.err.println("[Keys] No Live AI keys found (env GEMINI_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY, or Settings dialog). Using offline engine.");
+        }
+    }
+
+    private static void loadEnvKey(String envVar, java.util.function.BooleanSupplier has,
+                                   java.util.function.Consumer<String> set, String label) {
+        if (has.getAsBoolean()) return;
+        String v = System.getenv(envVar);
+        if (v != null && !v.isBlank()) {
+            set.accept(v);
+            System.err.println("[Keys] " + label + " key loaded from env " + envVar
+                + " (len=" + v.trim().length() + ", tail=..." + maskTail(v.trim()) + ")");
+        }
+    }
+
+    private static String maskTail(String k) {
+        return k.substring(Math.max(0, k.length() - 4));
+    }
+
+    /**
      * Helper – returns whichever key is available (Gemini -> Claude -> OpenAI).
      */
     public static String getApiKey() {
