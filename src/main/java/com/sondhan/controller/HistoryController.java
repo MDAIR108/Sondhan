@@ -65,6 +65,7 @@ public class HistoryController {
     @FXML private VBox  detailPanel;
     @FXML private Label detailAiModelLabel;
     @FXML private Label detailClaimLabel;
+    @FXML private Button editClaimButton;
     @FXML private Label detailVerdictLabel;
     @FXML private Label detailConfLabel;
     @FXML private Label detailExplanationLabel;
@@ -613,8 +614,43 @@ public class HistoryController {
             detailSourcesBox.getChildren().add(noSrc);
         }
 
+        // Article sub-claims (Feature 3): read lazily off the FX thread so the
+        // article_claims table is actually displayed, not just written.
+        if ("url".equalsIgnoreCase(h.getInputType())) {
+            loadArticleClaimsIntoDetail(h);
+        }
+
         detailPanel.setVisible(true);
         detailPanel.setManaged(true);
+    }
+
+    /** Background load of per-claim rows for URL/article records into the detail panel. */
+    private void loadArticleClaimsIntoDetail(SearchHistory h) {
+        final int recordId = h.getId();
+        Task<List<String[]>> claimsTask = new Task<>() {
+            @Override protected List<String[]> call() throws Exception {
+                return DatabaseService.getInstance().getArticleClaims(recordId);
+            }
+        };
+        claimsTask.setOnSucceeded(e -> Platform.runLater(() -> {
+            SearchHistory sel = historyTable.getSelectionModel().getSelectedItem();
+            if (sel == null || sel.getId() != recordId) return; // selection moved on
+            List<String[]> rows = claimsTask.getValue();
+            if (rows == null || rows.isEmpty()) return;
+            Label header = new Label("ARTICLE CLAIMS (" + rows.size() + ")");
+            header.getStyleClass().add("section-label");
+            detailSourcesBox.getChildren().add(header);
+            int i = 1;
+            for (String[] row : rows) {
+                Label line = new Label(i++ + ". " + row[0] + "  [" + row[1] + ", " + row[2] + "%]");
+                line.setWrapText(true);
+                line.getStyleClass().add("text-muted");
+                detailSourcesBox.getChildren().add(line);
+            }
+        }));
+        claimsTask.setOnFailed(e -> Platform.runLater(() ->
+            System.err.println("[History] article-claims load failed: " + claimsTask.getException().getMessage())));
+        new Thread(claimsTask, "sondhan-claims-load").start();
     }
 
     private String formatSourceType(String t) {
@@ -646,8 +682,66 @@ public class HistoryController {
     //  Actions: Delete & Clear History (Topic 3: SQLite DML)
     // ═════════════════════════════════════════════════════════════════════════
 
-    @FXML private void handleDeleteSelected() {
+    /**
+     * Update path for history records: edit the archived claim text via dialog,
+     * persist with UPDATE on a background thread, refresh the table + detail.
+     */
+    @FXML private void handleEditClaim() {
         SearchHistory sel = historyTable.getSelectionModel().getSelectedItem();
+        if (sel == null) {
+            Alert alert = new Alert(Alert.AlertType.INFORMATION);
+            alert.setTitle("No Selection");
+            alert.setHeaderText(null);
+            alert.setContentText("Please select a record from the table to edit.");
+            alert.showAndWait();
+            return;
+        }
+        TextInputDialog dialog = new TextInputDialog(sel.getClaim() != null ? sel.getClaim() : "");
+        dialog.setTitle("Edit Claim");
+        dialog.setHeaderText("Update the archived claim text");
+        dialog.setContentText("Claim:");
+        dialog.showAndWait().ifPresent(next -> {
+            String trimmed = next == null ? "" : next.trim();
+            if (trimmed.isEmpty()) {
+                Alert warn = new Alert(Alert.AlertType.WARNING);
+                warn.setTitle("Invalid Claim");
+                warn.setHeaderText(null);
+                warn.setContentText("Claim text cannot be empty.");
+                warn.showAndWait();
+                return;
+            }
+            if (trimmed.equals(sel.getClaim())) return;
+            Task<Integer> updateTask = new Task<>() {
+                @Override protected Integer call() throws Exception {
+                    return DatabaseService.getInstance().updateSearchClaim(sel.getId(), trimmed);
+                }
+            };
+            updateTask.setOnSucceeded(e -> Platform.runLater(() -> {
+                if (updateTask.getValue() != null && updateTask.getValue() > 0) {
+                    sel.setClaim(trimmed);
+                    historyTable.refresh();
+                    detailClaimLabel.setText(trimmed);
+                    applyFilters();
+                } else {
+                    Alert warn = new Alert(Alert.AlertType.WARNING);
+                    warn.setTitle("Update Failed");
+                    warn.setHeaderText(null);
+                    warn.setContentText("That record no longer exists in the archive.");
+                    warn.showAndWait();
+                }
+            }));
+            updateTask.setOnFailed(e -> Platform.runLater(() -> {
+                Alert err = new Alert(Alert.AlertType.ERROR);
+                err.setTitle("Update Failed");
+                err.setHeaderText(null);
+                err.setContentText("Could not update claim: " + updateTask.getException().getMessage());
+                err.showAndWait();
+            }));
+            new Thread(updateTask, "sondhan-update-thread").start();
+        });
+    }
+
+    @FXML private void handleDeleteSelected() {        SearchHistory sel = historyTable.getSelectionModel().getSelectedItem();
         if (sel == null) {
             Alert alert = new Alert(Alert.AlertType.INFORMATION);
             alert.setTitle("No Selection");

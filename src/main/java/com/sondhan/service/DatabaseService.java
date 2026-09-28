@@ -301,6 +301,19 @@ public class DatabaseService {
         }
     }
 
+    /**
+     * Updates the archived claim text of one search row.
+     * @return number of rows updated (0 when the id no longer exists).
+     */
+    public int updateSearchClaim(int id, String claim) throws SQLException {
+        try (PreparedStatement ps = connection.prepareStatement(
+                "UPDATE searches SET claim = ? WHERE id = ?")) {
+            ps.setString(1, claim);
+            ps.setInt(2, id);
+            return ps.executeUpdate();
+        }
+    }
+
     // ── Analytics Helpers (Feature 4) ─────────────────────────────────────────
 
     /** Returns counts grouped by verdict for the given user. */

@@ -146,6 +146,8 @@
                         <Label text="CLAIM" styleClass="section-label"/>
                         <Label fx:id="detailClaimLabel" wrapText="true" styleClass="claim-text"
                                style="-fx-font-size:13.5px;"/>
+                        <Button fx:id="editClaimButton" text="✏️ Edit Claim" styleClass="btn-secondary"
+                                onAction="#handleEditClaim"/>
                     </VBox>
 
                     <!-- Verdict + Confidence -->
