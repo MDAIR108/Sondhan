@@ -151,6 +151,8 @@ public class Main extends Application {
 
     @Override
     public void stop() {
+        com.sondhan.service.FactCheckerService.shutdown();
+        com.sondhan.service.SourceRetrievalService.shutdown();
         DatabaseService.getInstance().close();
     }
 

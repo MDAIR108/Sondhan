@@ -90,6 +90,24 @@ public class FactCheckerService {
     public static ExecutorService getExecutor() { return EXECUTOR; }
 
     /**
+     * Orderly shutdown for app exit (called from Main.stop()).
+     * Pool threads are daemon so the JVM would exit anyway — this is the
+     * clean path: stop accepting work, wait briefly, then force.
+     */
+    public static void shutdown() {
+        EXECUTOR.shutdown();
+        try {
+            if (!EXECUTOR.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS)) {
+                EXECUTOR.shutdownNow();
+            }
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            EXECUTOR.shutdownNow();
+        }
+        System.err.println("[Engine] Worker pool shut down.");
+    }
+
+    /**
      * Last live-engine failure on this worker thread (for the offline-fallback
      * reason shown in logs + UI banner). Recorded in every live catch block,
      * consumed when the offline engine takes over. Cleared at each entry point

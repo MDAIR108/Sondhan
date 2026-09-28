@@ -55,6 +55,20 @@ public class SourceRetrievalService {
         return t;
     });
 
+    /** Orderly shutdown for app exit (called from Main.stop()). */
+    public static void shutdown() {
+        POOL.shutdown();
+        try {
+            if (!POOL.awaitTermination(5, TimeUnit.SECONDS)) {
+                POOL.shutdownNow();
+            }
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            POOL.shutdownNow();
+        }
+        System.err.println("[Sources] Check pool shut down.");
+    }
+
     private static final String UA =
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36 SondhanFactChecker/2.5";
 
