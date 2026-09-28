@@ -1,0 +1,27 @@
+# Build output
+target/
+out/
+*.class
+
+# SQLite runtime database (recreated automatically on startup)
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+
+# IDE files
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+.project
+.classpath
+.settings/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
