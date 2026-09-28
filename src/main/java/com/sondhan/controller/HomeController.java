@@ -1507,16 +1507,22 @@ public class HomeController {
             alert("Report Unavailable", "Verification did not complete — press \"Retry now\" and export after a successful check.");
             return;
         }
+        ReportExporter exporter = new MarkdownReportExporter();
         String report;
-        if (currentArticleResult != null) {
-            report = com.sondhan.service.ReportGeneratorService.generateArticleReport(
-                currentArticleResult, currentArticleResult.getSearchId()
-            );
-        } else if (currentResult != null) {
-            report = com.sondhan.service.ReportGeneratorService.generateMarkdownReport(
-                currentResult, currentResult.getVerificationId()
-            );
-        } else {
+        try {
+            if (currentArticleResult != null) {
+                report = exporter.exportArticle(
+                    currentArticleResult, currentArticleResult.getSearchId()
+                );
+            } else if (currentResult != null) {
+                report = exporter.exportClaim(
+                    currentResult, currentResult.getVerificationId()
+                );
+            } else {
+                return;
+            }
+        } catch (Exception ex) {
+            alert("Report Failed", "Could not generate report: " + ex.getMessage());
             return;
         }
         Clipboard clipboard = Clipboard.getSystemClipboard();
@@ -1536,16 +1542,22 @@ public class HomeController {
             alert("Report Unavailable", "Verification did not complete — press \"Retry now\" and export after a successful check.");
             return;
         }
+        ReportExporter exporter = new MarkdownReportExporter();
         String report;
-        if (currentArticleResult != null) {
-            report = com.sondhan.service.ReportGeneratorService.generateArticleReport(
-                currentArticleResult, currentArticleResult.getSearchId()
-            );
-        } else if (currentResult != null) {
-            report = com.sondhan.service.ReportGeneratorService.generateMarkdownReport(
-                currentResult, currentResult.getVerificationId()
-            );
-        } else {
+        try {
+            if (currentArticleResult != null) {
+                report = exporter.exportArticle(
+                    currentArticleResult, currentArticleResult.getSearchId()
+                );
+            } else if (currentResult != null) {
+                report = exporter.exportClaim(
+                    currentResult, currentResult.getVerificationId()
+                );
+            } else {
+                return;
+            }
+        } catch (Exception ex) {
+            alert("Report Failed", "Could not generate report: " + ex.getMessage());
             return;
         }
         FileChooser fc = new FileChooser();
@@ -1577,12 +1589,18 @@ public class HomeController {
             alert("Report Unavailable", "Verification did not complete — press \"Retry now\" and export after a successful check.");
             return;
         }
+        ReportExporter exporter = new JsonReportExporter();
         String json;
-        if (currentArticleResult != null) {
-            json = com.sondhan.service.ReportGeneratorService.exportArticleJson(currentArticleResult);
-        } else if (currentResult != null) {
-            json = com.sondhan.service.ReportGeneratorService.exportJson(currentResult);
-        } else {
+        try {
+            if (currentArticleResult != null) {
+                json = exporter.exportArticle(currentArticleResult, currentArticleResult.getSearchId());
+            } else if (currentResult != null) {
+                json = exporter.exportClaim(currentResult, currentResult.getVerificationId());
+            } else {
+                return;
+            }
+        } catch (Exception ex) {
+            alert("Report Failed", "Could not generate JSON: " + ex.getMessage());
             return;
         }
         FileChooser fc = new FileChooser();

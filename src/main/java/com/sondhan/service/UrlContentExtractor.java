@@ -156,7 +156,7 @@ public class UrlContentExtractor {
      */
     public static ExtractedPage extract(String urlString) throws Exception {
         if (urlString == null || urlString.isBlank()) {
-            throw new IllegalArgumentException("URL cannot be empty.");
+            throw new VerificationException("URL cannot be empty.");
         }
 
         String targetUrl = urlString.trim();
@@ -212,7 +212,7 @@ public class UrlContentExtractor {
 
         String html = response.body();
         if (html == null || html.isBlank()) {
-            throw new RuntimeException("Webpage body was empty.");
+            throw new VerificationException("Webpage body was empty.");
         }
 
         // 2. Parse with Jsoup
